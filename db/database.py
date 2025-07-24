@@ -7,6 +7,7 @@ load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+
 engine = create_engine(DATABASE_URL, pool_recycle=500, echo=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -18,3 +19,4 @@ def get_db():
         yield db
     finally:
         db.close()
+
