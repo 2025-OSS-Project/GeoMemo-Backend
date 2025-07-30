@@ -1,0 +1,101 @@
+# .github/workflows/discord-notify.yml
+name: 📨 Discord Issue & PR 알림
+
+on:
+  workflow_dispatch: {}
+  issues:
+    types: [opened, closed, reopened, edited]
+  pull_request:
+    types: [opened, closed, reopened, synchronize, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1) 레포별 웹훅 선택 + 포크/시크릿 미제공 안전장치
+      - name: Select Discord webhook
+        id: hook
+        shell: bash
+        run: |
+          REPO="${{ github.repository }}"
+          case "$REPO" in
+            2025-OSS-Project/GeoMemo-Backend)  URL="${{ secrets.WEBHOOK_BACKEND }}"  ;;
+            2025-OSS-Project/GeoMemo-Frontend) URL="${{ secrets.WEBHOOK_FRONTEND }}" ;;
+            2025-OSS-Project/GeoMemo-AI)       URL="${{ secrets.WEBHOOK_AI }}"       ;;
+            *) echo "::error::Unknown repository: $REPO"; exit 1 ;;
+          esac
+
+          # 포크 PR이면 secrets 미제공 → URL이 비어 있을 수 있음
+          if [ -z "$URL" ]; then
+            echo "has_webhook=false" >> "$GITHUB_OUTPUT"
+            echo "reason=missing_secret_or_fork_pr" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_webhook=true" >> "$GITHUB_OUTPUT"
+            echo "url=$URL" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "is_fork=${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork }}" >> "$GITHUB_OUTPUT"
+
+      - name: Skip when secrets are unavailable (e.g., fork PR)
+        if: steps.hook.outputs.has_webhook != 'true'
+        run: |
+          echo "ℹ️ No webhook available (fork PR or secret missing). Skipping notification."
+          echo "Reason: ${{ steps.hook.outputs.reason }}"
+          echo "is_fork: ${{ steps.hook.outputs.is_fork }}"
+
+      # 2-A) Issue 임베드
+      - name: Compute Issue embed color
+        id: issue
+        if: steps.hook.outputs.has_webhook == 'true' && github.event_name == 'issues'
+        run: |
+          case "${{ github.event.action }}" in
+            opened|reopened) COLOR=0x00B0F4 ;;   # 파랑
+            closed)          COLOR=0x808080 ;;   # 회색
+            *)               COLOR=0xF4D742 ;;   # 노랑
+          esac
+          echo "color=$COLOR" >> $GITHUB_OUTPUT
+
+      - name: Send Issue embed
+        if: steps.hook.outputs.has_webhook == 'true' && github.event_name == 'issues'
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ steps.hook.outputs.url }}
+          username: "Issue Bot 🐛"
+          color: ${{ steps.issue.outputs.color }}
+          title: "🐛 Issue #${{ github.event.issue.number }} ${{ github.event.action }}"
+          url: ${{ github.event.issue.html_url }}
+          description: |
+            **${{ github.event.issue.title }}**
+            작성자: @${{ github.event.issue.user.login }}
+
+      # 2-B) PR 임베드
+      - name: Compute PR embed color
+        id: pr
+        if: steps.hook.outputs.has_webhook == 'true' && github.event_name == 'pull_request'
+        run: |
+          if   [ "${{ github.event.action }}" = "closed" ] && [ "${{ github.event.pull_request.merged }}" = "true" ]; then
+            COLOR=0x57F287   # 초록(머지)
+          elif [ "${{ github.event.action }}" = "opened" ] || [ "${{ github.event.action }}" = "reopened" ]; then
+            COLOR=0xF47FFF   # 보라(신규/재오픈)
+          else
+            COLOR=0xFAA61A   # 주황(동기화/수정 등)
+          fi
+          echo "color=$COLOR" >> $GITHUB_OUTPUT
+
+      - name: Send PR embed
+        if: steps.hook.outputs.has_webhook == 'true' && github.event_name == 'pull_request'
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ steps.hook.outputs.url }}
+          username: "PR Bot 🚀"
+          color: ${{ steps.pr.outputs.color }}
+          title: "🚀 PR #${{ github.event.pull_request.number }} ${{ github.event.action }}"
+          url: ${{ github.event.pull_request.html_url }}
+          description: |
+            **${{ github.event.pull_request.title }}**
+            작성자: @${{ github.event.pull_request.user.login }}
+            브랜치: `${{ github.event.pull_request.head.ref }} → ${{ github.event.pull_request.base.ref }}`
