@@ -2,9 +2,21 @@ name: Docker Build, Health Tests & Push to ECR
 
 on:
   push:
+    branches:
+      - dev
+      - 'feature/**'
+      - 'fix/**'
+  pull_request:
     branches: [dev]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch or tag to run (e.g., feature/my-branch or dev)'
+        required: true
+        default: 'dev'
 
+        
 jobs:
   build-health-push:
     runs-on: ubuntu-latest
