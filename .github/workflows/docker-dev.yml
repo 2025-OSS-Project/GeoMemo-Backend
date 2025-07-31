@@ -37,14 +37,4 @@ jobs:
           push: false
           tags: geomemo-backend:dev-${{ github.sha }}
 
-      # 5. MySQL 클라이언트 설치
-      - name: Install MySQL client
-        run: sudo apt-get update && sudo apt-get install -y mysql-client
-
-      # 6. RDS MySQL 연결 테스트
-      - name: Test RDS MySQL connection
-        run: |
-          docker run --rm \
-            --env-file .env \
-            geomemo-backend:dev-${{ github.sha }} \
-            sh -c "mysql -h \"$DB_HOST\" -u \"$DB_USER\" -p\"$DB_PASS\" -e 'SELECT 1;'"
+    
