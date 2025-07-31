@@ -45,7 +45,7 @@ jobs:
             --env-file .env \
             geomemo-backend:dev-${{ github.sha }}
 
-      # 6. 컨테이너 준비 대기 (최대 10회, 5초 간격)
+      # 6. 컨테이너 준비 대기
       - name: Wait for container startup
         run: |
           for i in {1..10}; do
@@ -68,8 +68,6 @@ jobs:
           docker stop geomemo-test
           docker rm geomemo-test
 
-      # --- 여기에부터 ECR 푸시 단계 ---
-
       # 10. AWS 자격증명 구성
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -80,11 +78,11 @@ jobs:
 
       # 11. Amazon ECR 로그인
       - name: Login to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v1               # 기본(private) 레지스트리에 로그인 :contentReference[oaicite:1]{index=1}
+        uses: aws-actions/amazon-ecr-login@v1               # Private ECR 로그인 :contentReference[oaicite:1]{index=1}
 
       # 12. 이미지 태깅 & 푸시
       - name: Tag and push image to ECR
         run: |
-          IMAGE_URI=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/geomemo-backend
+          IMAGE_URI=067258969425.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/geomemo
           docker tag geomemo-backend:dev-${{ github.sha }} $IMAGE_URI:dev-${{ github.sha }}
           docker push $IMAGE_URI:dev-${{ github.sha }}        # ECR에 이미지 업로드 :contentReference[oaicite:2]{index=2}
