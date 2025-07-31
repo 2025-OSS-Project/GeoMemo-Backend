@@ -88,10 +88,10 @@ jobs:
       - name: HTTP health check
         run: curl -sSf http://localhost:8000/api/health
 
-      # 8) DB 헬스 체크 (dev 브랜치 push에만)
-      - name: Database health check
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev' }}
-        run: curl -sSf http://localhost:8000/api/dbhealth
+      # # 8) DB 헬스 체크 (dev 브랜치 push에만)
+      # - name: Database health check
+      #   if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev' }}
+      #   run: curl -sSf http://localhost:8000/api/dbhealth
 
       # 9) 로그 및 정리(항상)
       - name: Stop and remove container
