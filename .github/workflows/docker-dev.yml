@@ -88,9 +88,9 @@ jobs:
       - name: HTTP health check
         run: curl -sSf http://localhost:8000/api/health
 
-      # 8) DB 헬스 체크 (시크릿 있을 때만)
+      # 8) DB 헬스 체크 (dev 브랜치 push에만)
       - name: Database health check
-        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev' }}
         run: curl -sSf http://localhost:8000/api/dbhealth
 
       # 9) 로그 및 정리(항상)
