@@ -55,12 +55,12 @@ jobs:
       # 7. HTTP Health Check
       - name: HTTP health check
         run: |
-          curl -sSf http://localhost:8000/health
+          curl -sSf http://localhost:8000/api/health
 
       # 8. DB Health Check
       - name: Database health check
         run: |
-          curl -sSf http://localhost:8000/dbhealth
+          curl -sSf http://localhost:8000/api/dbhealth
 
       # 9. 컨테이너 정리
       - name: Stop and remove container
