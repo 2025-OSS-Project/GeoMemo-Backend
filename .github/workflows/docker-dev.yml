@@ -1,0 +1,88 @@
+name: Docker Build, Health Tests & Push to ECR
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+jobs:
+  build-health-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. 레포 체크아웃
+      - name: Checkout dev branch
+        uses: actions/checkout@v3
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      # 2. .env 복원
+      - name: Restore .env from ENV secret
+        run: |
+          cat <<EOF > .env
+          ${{ secrets.ENV }}
+          EOF
+
+      # 3. Docker Buildx 설정
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # 4. Docker 이미지 빌드
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: geomemo-backend:dev-${{ github.sha }}
+
+      # 5. 컨테이너 백그라운드 실행
+      - name: Run container in background
+        run: |
+          docker run -d --name geomemo-test \
+            -p 8000:8000 \
+            --env-file .env \
+            geomemo-backend:dev-${{ github.sha }}
+
+      # 6. 컨테이너 준비 대기
+      - name: Wait for container startup
+        run: |
+          for i in {1..10}; do
+            curl -s http://localhost:8000/health && break || sleep 5
+          done
+
+      # 7. HTTP Health Check
+      - name: HTTP health check
+        run: |
+          curl -sSf http://localhost:8000/health
+
+      # 8. DB Health Check
+      - name: Database health check
+        run: |
+          curl -sSf http://localhost:8000/dbhealth
+
+      # 9. 컨테이너 정리
+      - name: Stop and remove container
+        run: |
+          docker stop geomemo-test
+          docker rm geomemo-test
+
+      # 10. AWS 자격증명 구성
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}                # 리전 설정 :contentReference[oaicite:0]{index=0}
+
+      # 11. Amazon ECR 로그인
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v1               # Private ECR 로그인 :contentReference[oaicite:1]{index=1}
+
+      # 12. 이미지 태깅 & 푸시
+      - name: Tag and push image to ECR
+        run: |
+          IMAGE_URI=067258969425.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/geomemo
+          docker tag geomemo-backend:dev-${{ github.sha }} $IMAGE_URI:dev-${{ github.sha }}
+          docker push $IMAGE_URI:dev-${{ github.sha }}        # ECR에 이미지 업로드 :contentReference[oaicite:2]{index=2}
