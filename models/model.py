@@ -11,11 +11,12 @@ class UserEntity(Base):
     __tablename__ = "UserEntity"
 
     user_id = Column(Integer, primary_key=True, autoincrement=True, index=True)
-    email = Column(String(20), nullable=True)
+    email = Column(String(100), nullable=True)
     password = Column(String(256), nullable=True)
     name = Column(String(10), nullable=True)
     nickname = Column(String(10), nullable=True)
     phone = Column(String(11), nullable=True)
+    profile_image_url = Column(String(512), nullable=True)
     createdAt = Column(DateTime(timezone=True), server_default=func.now())
     updatedAt = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
