@@ -51,6 +51,11 @@ def get_my_profile(current_user: UserEntity = Depends(get_current_user)):
         "user_id": current_user.user_id,
         "email": current_user.email,
         "name": current_user.name,
+        "nickname": current_user.nickname,
+        "phone": current_user.phone,
+        "profile_image_url": current_user.profile_image_url,
+        "privacy_settings": current_user.privacy_settings,
+        "view_settings": current_user.view_settings
     }
 
 @router.post("/send-mail")

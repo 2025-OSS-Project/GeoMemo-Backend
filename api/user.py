@@ -1,16 +1,19 @@
 from fastapi import APIRouter, Depends, Query, HTTPException
 from core.deps import get_current_user
 from models.model import UserEntity
-from schemas.user import DeleteUserResponse, NicknameUpdateRequest, NicknameUpdateResponse, PasswordUpdateRequest, PasswordUpdateResponse, UserProfileImageUpdate
+from schemas.user import DeleteUserResponse, NicknameUpdateRequest, NicknameUpdateResponse, PasswordUpdateRequest, PasswordUpdateResponse, UserProfileImageUpdate, PrivacyUpdateRequest, StandardResponse
 from crud.user import delete_user, update_user_nickname, update_user_password
 from db.database import get_db
 from sqlalchemy.orm import Session
 from enum import Enum
+from api.routes.follow import follow_router  # ✅ follow 라우터 import
 
 router = APIRouter(
     prefix="/api/user",
     tags=["user"]
 )
+
+router.include_router(follow_router)
 
 class SearchType(str, Enum):
     nickname = "nickname"
@@ -71,7 +74,7 @@ def search_users(
     current_user: UserEntity = Depends(get_current_user)  # ✅ JWT 인증 필요
 ):
     try:
-        query = db.query(UserEntity)
+        query = db.query(UserEntity).filter(UserEntity.privacy_settings != 'closed')
 
         if type == SearchType.nickname:
             query = query.filter(UserEntity.nickname.like(f"%{keyword}%"))
@@ -106,3 +109,34 @@ def search_users(
             "data": None,
             "error": str(e)
         }
+
+    
+@router.post("/update-privacy", response_model=StandardResponse)
+def update_privacy(
+    payload: PrivacyUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: UserEntity = Depends(get_current_user)
+):
+    try:
+        current_user.privacy_settings = payload.privacy_settings
+        db.commit()
+        return {"success": True, "error": None}
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": str(e)}
+    
+from schemas.user import ViewUpdateRequest
+
+@router.post("/update-view", response_model=StandardResponse)
+def update_view_settings(
+    payload: ViewUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: UserEntity = Depends(get_current_user)
+):
+    try:
+        current_user.view_settings = payload.view_settings
+        db.commit()
+        return {"success": True, "error": None}
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": str(e)}

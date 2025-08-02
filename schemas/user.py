@@ -1,5 +1,12 @@
-from pydantic import BaseModel, EmailStr
-from typing import Optional, Dict
+from pydantic import BaseModel, EmailStr, Field
+from typing import Literal, Optional, Dict
+
+class PrivacyUpdateRequest(BaseModel):
+    privacy_settings: Literal["open", "semi", "closed"]
+
+class StandardResponse(BaseModel):
+    success: bool
+    error: Optional[str] = None
 
 class UserCreate(BaseModel):
     email: EmailStr
@@ -38,3 +45,6 @@ class DeleteUserResponse(BaseModel):
     success: bool
     data: Optional[Dict[str, int]]
     error: Optional[str]
+
+class ViewUpdateRequest(BaseModel):
+    view_settings: Literal["all", "follows", "self"]

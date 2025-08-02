@@ -17,6 +17,9 @@ class UserEntity(Base):
     nickname = Column(String(10), nullable=True)
     phone = Column(String(11), nullable=True)
     profile_image_url = Column(String(512), nullable=True)
+    privacy_settings = Column(String(10), nullable=False, default="open")  # "open", "semi", "closed"
+    view_settings = Column(String(10), nullable=False, default="all")  # "all" | "follows" | "self"
+
     createdAt = Column(DateTime(timezone=True), server_default=func.now())
     updatedAt = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -125,7 +128,10 @@ class FollowEntity(Base):
 
     follower_id = Column(Integer, ForeignKey("UserEntity.user_id"), primary_key=True)
     following_id = Column(Integer, ForeignKey("UserEntity.user_id"), primary_key=True)
+    is_approved = Column(Boolean, nullable=False, default=False)
+
     createdAt = Column(DateTime(timezone=True), server_default=func.now())
+    updatedAt = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     follower = relationship("UserEntity", foreign_keys=[follower_id], back_populates="followings")
     following = relationship("UserEntity", foreign_keys=[following_id], back_populates="followers")
