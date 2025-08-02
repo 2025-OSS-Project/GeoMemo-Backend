@@ -21,6 +21,9 @@ class PasswordUpdateResponse(BaseModel):
     data: Optional[Dict[str, str]]
     error: Optional[str]
 
+class UserProfileImageUpdate(BaseModel):
+    profile_image_url: str
+
 #닉네임 변경 스키마
 class NicknameUpdateRequest(BaseModel):
     nickname: str
