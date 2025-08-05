@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from api import auth,user,system  # 예시
+from api import auth, memo,user,system  # 예시
 from fastapi.openapi.utils import get_openapi
 
 app = FastAPI()
@@ -8,6 +8,7 @@ app = FastAPI()
 app.include_router(auth.router)
 app.include_router(user.router)
 app.include_router(system.router)
+app.include_router(memo.router)
 
 # ✅ 그 다음 openapi 오버라이드
 def custom_openapi():

@@ -36,7 +36,7 @@ def update_nickname(
 ):
     return update_user_nickname(session, current_user.user_id, body.nickname)
 
-@router.delete("/delete-account", response_model=DeleteUserResponse)
+@router.post("/delete-account", response_model=DeleteUserResponse)
 def delete_account(
     current_user: UserEntity = Depends(get_current_user),
     db: Session = Depends(get_db)
