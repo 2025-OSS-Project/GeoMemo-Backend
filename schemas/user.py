@@ -1,6 +1,8 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional, Dict
 
+from schemas.response import APIResponse
+
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
@@ -16,22 +18,14 @@ class UserLogin(BaseModel):
 class PasswordUpdateRequest(BaseModel):
     password: str
 
-class PasswordUpdateResponse(BaseModel):
-    success: bool
-    data: Optional[Dict[str, str]]
-    error: Optional[str]
+PasswordUpdateResponse = APIResponse[Optional[Dict[str, str]]]
 
 #닉네임 변경 스키마
 class NicknameUpdateRequest(BaseModel):
     nickname: str
 
-class NicknameUpdateResponse(BaseModel):
-    success: bool
-    data: Optional[Dict[str, str]]
-    error: Optional[str]
+NicknameUpdateResponse = APIResponse[Optional[Dict[str, str]]]
 
 #회원탈퇴 스키마
-class DeleteUserResponse(BaseModel):
-    success: bool
-    data: Optional[Dict[str, int]]
-    error: Optional[str]
+UserDeleteResponse = APIResponse[Optional[Dict[str, int]]]
+    

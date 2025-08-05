@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, Integer, String, Float, Text, Boolean,
-    DateTime, ForeignKey, Double
+    DateTime, ForeignKey
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -18,7 +18,8 @@ class UserEntity(Base):
     phone = Column(String(11), nullable=True)
     createdAt = Column(DateTime(timezone=True), server_default=func.now())
     updatedAt = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-
+    photo_url = Column(String(500), nullable=True)
+    
     memos = relationship("MemoEntity", back_populates="user")
     memo_scraps = relationship("MemoScrapEntity", back_populates="user")
     insights = relationship("InsightEntity", back_populates="user")
@@ -36,20 +37,6 @@ class EmotionEntity(Base):
     memo_id = Column(Integer, ForeignKey("MemoEntity.memo_id"), nullable=False)
 
     memo = relationship("MemoEntity", back_populates="emotions")
-
-
-class LocationEntity(Base):
-    __tablename__ = "LocationEntity"
-
-    location_id = Column(Integer, primary_key=True, autoincrement=True, index=True)
-    name = Column(String(20), nullable=True)
-    latitude = Column(Double, nullable=True)
-    longitude = Column(Double, nullable=True)
-    address = Column(String(40), nullable=True)
-    category = Column(String(30), nullable=True)
-    createdAt = Column(DateTime(timezone=True), server_default=func.now())
-
-    memos = relationship("MemoEntity", back_populates="location")
 
 
 class MemoScrapEntity(Base):
@@ -85,13 +72,28 @@ class MemoEntity(Base):
     updatedAt = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     is_public = Column(Boolean, nullable=True)
     user_id = Column(Integer, ForeignKey("UserEntity.user_id"), nullable=False)
-    location_id = Column(Integer, ForeignKey("LocationEntity.location_id"), nullable=False)
+    # location_id 컬럼 없음 (LocationEntity가 FK를 가짐)
 
+    location = relationship("LocationEntity", back_populates="memo", uselist=False, cascade="all, delete-orphan")
+    emotions = relationship("EmotionEntity", back_populates="memo", cascade="all, delete-orphan")
+    memo_scraps = relationship("MemoScrapEntity", back_populates="memo", cascade="all, delete-orphan")
+    photos = relationship("PhotoEntity", back_populates="memo", cascade="all, delete-orphan")
     user = relationship("UserEntity", back_populates="memos")
-    location = relationship("LocationEntity", back_populates="memos")
-    emotions = relationship("EmotionEntity", back_populates="memo")
-    memo_scraps = relationship("MemoScrapEntity", back_populates="memo")
-    photos = relationship("PhotoEntity", back_populates="memo")
+
+
+class LocationEntity(Base):
+    __tablename__ = "LocationEntity"
+
+    location_id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    name = Column(String(20), nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    address = Column(String(40), nullable=True)
+    category = Column(String(30), nullable=True)
+    createdAt = Column(DateTime(timezone=True), server_default=func.now())
+    memo_id = Column(Integer, ForeignKey("MemoEntity.memo_id"), nullable=False, unique=True)  # 1:1 보장 위해 unique=True
+
+    memo = relationship("MemoEntity", back_populates="location")
 
 
 class PhotoEntity(Base):
