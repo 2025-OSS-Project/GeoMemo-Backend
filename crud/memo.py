@@ -1,43 +1,33 @@
-
-from typing import Optional
-from fastapi import UploadFile, HTTPException
+from fastapi import  HTTPException
 from sqlalchemy.orm import Session
 from models import model
 from datetime import datetime
 
-from schemas.memo import LocationInfo
-
-#메모추가
-from typing import Optional
-from fastapi import UploadFile, HTTPException
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from models import model
 from datetime import datetime
 
-from schemas.memo import LocationInfo
+from schemas.memo import CreateMemoRequest, UpdateMemoRequest
 
-def create_memo_with_file(
+def create_memo(
     db: Session,
-    content: str,
-    is_public: bool,
     user_id: int,
-    location_info: LocationInfo,
-    file: UploadFile = None
+    memo_create: CreateMemoRequest
 ) -> model.MemoEntity:
-    location_data = LocationInfo(**location_info)
     location = model.LocationEntity(
-    name=location_data.name,
-    latitude=location_data.latitude,
-    longitude=location_data.longitude,
-    address=location_data.address,
-    category=location_data.category
+        name=memo_create.location_name,
+        latitude=memo_create.location_latitude,
+        longitude=memo_create.location_longitude,
+        address=memo_create.location_address,
+        category=memo_create.location_category
     )
     db.add(location)
     db.commit()
     db.refresh(location)
     memo = model.MemoEntity(
-        content=content,
-        is_public=is_public,
+        content=memo_create.content,
+        is_public=memo_create.is_public,
         user_id=user_id,
         location_id = location.location_id,
         createdAt=datetime.utcnow(),
@@ -47,56 +37,57 @@ def create_memo_with_file(
     db.commit()
     db.refresh(memo)
 
-    photo = model.PhotoEntity
-    # 파일 업로드 처리
-    if file:
-        saved_path = f"uploads/{file.filename}"
-        photo = model.PhotoEntity(
-            photo_url=saved_path,
-            memo_id=memo.memo_id
-        )
+    photo = model.PhotoEntity(
+        photo_url=memo_create.file_url,
+        memo_id=memo.memo_id
+    )
     db.add(photo)
     db.commit()
     db.refresh(photo)
-    # 필요시 memo.photos.append(photo) 가능
-
     return memo
 
 
 def delete_memo(db: Session, memo_id: int) -> bool:
-    memo = db.query(model.MemoEntity).filter_by(memo_id=memo_id).first()
+    memo = db.query(model.MemoEntity).filter(model.MemoEntity.memo_id==memo_id).first()
+    location = db.query(model.LocationEntity).filter(model.LocationEntity.location_id==memo.location_id).first()
+    db.delete(location)
     if not memo:
         raise HTTPException(status_code=404, detail="삭제할 메모가 없습니다.")
     db.delete(memo)
     db.commit()
     return True
 
-def update_memo_with_file(
+def update_memo_with_photos(
     db: Session,
-    memo_id: int,
-    content: str,
-    is_public: bool,
     user_id: int,
-    file: UploadFile = None
+    memo_update = UpdateMemoRequest
 ) -> model.MemoEntity:
-    memo = db.query(model.MemoEntity).filter_by(memo_id=memo_id).first()
+    memo = db.query(model.MemoEntity).filter_by(memo_id=memo_update.memo_id).first()
     if not memo:
         raise HTTPException(status_code=404, detail="메모가 존재하지 않습니다.")
 
     if memo.user_id != user_id:
         raise HTTPException(status_code=403, detail="수정 권한이 없습니다.")
 
-    # 메모 정보 업데이트
-    memo.content = content
-    memo.is_public = is_public
+    # 메모 수정
+    memo.content = memo_update.content
+    memo.is_public = memo_update.is_public
     memo.updatedAt = datetime.utcnow()
 
-    # 파일 업로드 처리
-    if file:
-        # 실제 업로드는 별도 함수로 대체 가능
-        saved_path = f"uploads/{file.filename}"
-        memo.file_url = saved_path
+    # 기존 사진 중 삭제 대상 제거
+    if memo_update.remain_photo_ids is not None:
+        db.query(model.PhotoEntity).filter(
+            model.PhotoEntity.memo_id == memo_update.memo_id,
+            ~model.PhotoEntity.photo_id.in_(memo_update.remain_photo_ids)
+        ).delete(synchronize_session=False)
+
+    # 새 사진 추가
+    for url in memo_update.new_photo_urls:
+        photo = model.PhotoEntity(photo_url=url, memo_id=memo_update.memo_id)
+        db.add(photo)
 
     db.commit()
     db.refresh(memo)
     return memo
+
+

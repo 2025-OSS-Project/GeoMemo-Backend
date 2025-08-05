@@ -93,9 +93,9 @@ class MemoEntity(Base):
 
     user = relationship("UserEntity", back_populates="memos")
     location = relationship("LocationEntity", back_populates="memos")
-    emotions = relationship("EmotionEntity", back_populates="memo")
-    memo_scraps = relationship("MemoScrapEntity", back_populates="memo")
-    photos = relationship("PhotoEntity", back_populates="memo")
+    emotions = relationship("EmotionEntity", back_populates="memo",cascade="all, delete-orphan", passive_deletes=True)
+    memo_scraps = relationship("MemoScrapEntity", back_populates="memo",cascade="all, delete-orphan", passive_deletes=True)
+    photos = relationship("PhotoEntity", back_populates="memo", cascade="all, delete-orphan", passive_deletes=True)
 
 
 class PhotoEntity(Base):
@@ -105,7 +105,7 @@ class PhotoEntity(Base):
     photo_url = Column(String(255), nullable=True)
     createdAt = Column(DateTime(timezone=True), server_default=func.now())
     updatedAt = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    memo_id = Column(Integer, ForeignKey("MemoEntity.memo_id"), nullable=False)
+    memo_id = Column(Integer, ForeignKey("MemoEntity.memo_id", ondelete="CASCADE"), nullable=False)
 
     memo = relationship("MemoEntity", back_populates="photos")
 
