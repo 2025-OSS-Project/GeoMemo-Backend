@@ -21,11 +21,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  #빌드 시작
+  # 빌드 시작
   build-health:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-
     steps:
       # 1) 체크아웃: PR/수동실행/푸시 모두에서 올바른 ref
       - name: Checkout
@@ -119,19 +118,17 @@ jobs:
           docker tag geomemo-backend:dev-${{ github.sha }} $IMAGE_URI:dev-${{ github.sha }}
           docker push $IMAGE_URI:dev-${{ github.sha }}
 
-
-  #EC2 배포 시작
+  # EC2 배포 시작: 단계별로 세분화
   deploy-to-ec2:
     needs: build-health
     runs-on: ubuntu-latest
-    if: >-
+    if: >
       github.event_name == 'push' &&
       github.ref == 'refs/heads/dev'
-    timeout-minutes: 15
-
+    timeout-minutes: 20
     steps:
-      # 1) SSH 배포 스크립트 실행
-      - name: Deploy to EC2 via SSH
+      # 1) (EC2) ECR 로그인 (EC2 인스턴스에 ECR ReadOnly 역할이 있어야 함)
+      - name: EC2 - ECR login
         uses: appleboy/ssh-action@v1.2.2
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -139,52 +136,107 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
           script: |
-            # ─── EC2 측: ECR 로그인이 IAM 역할로 가능
-            aws ecr get-login-password \
-              --region ${{ secrets.AWS_REGION }} \
-            | docker login \
-                --username AWS \
-                --password-stdin \
-                ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} \
+            | docker login --username AWS --password-stdin \
+              ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
 
-            # ─── 최신 이미지 풀
-            docker pull \
-              ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/geomemo:dev-${{ github.sha }}
+      # 2) (EC2) 이미지 Pull
+      - name: EC2 - docker pull image
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script: |
+            docker pull ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/geomemo:dev-${{ github.sha }}
 
-            # ─── 이전 컨테이너 교체
+      # 3) (EC2) 기존 컨테이너 정지/삭제
+      - name: EC2 - stop & remove old container
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script: |
             docker stop geomemo || true
-            docker rm geomemo   || true
+            docker rm geomemo || true
 
-            # ─── 새 컨테이너 실행
+      # 4) (EC2) 새 컨테이너 실행
+      - name: EC2 - run new container
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script: |
             docker run -d \
               --name geomemo \
               -p 8000:8000 \
               --env-file /home/${{ secrets.EC2_USER }}/app/.env \
               ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/geomemo:dev-${{ github.sha }}
 
-            # ─── 헬스체크 (최대 20회 시도)
+      # 5) (EC2) 준비 대기: /api/health 200까지 반복 확인
+      - name: EC2 - wait until /api/health 200
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script: |
             for i in {1..20}; do
               code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/api/health || true)
+              echo "Attempt $i => HTTP $code"
               if [ "$code" -eq 200 ]; then
-                echo "Service is healthy."
-                break
+                exit 0
               fi
               sleep 3
             done
+            echo "Service did not become healthy on /api/health" >&2
+            exit 1
+
+      # 6) (EC2) 앱 헬스 체크 단일 검증
+      - name: EC2 - app health check
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script: |
             curl -sSf http://localhost:8000/api/health
 
-            # ─── DB 헬스체크 (필요 시)
-            curl -sSf http://localhost:8000/api/dbhealth  
+      # 7) (EC2) DB 헬스 체크 (엔드포인트가 있다면)
+      - name: EC2 - DB health check
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script: |
+            curl -sSf http://localhost:8000/api/dbhealth
 
-        # 8) DB 헬스 체크 (dev 브랜치 push에만)
-      - name: Database health check
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev' }}
-        run: curl -sSf http://localhost:8000/api/dbhealth
-      
-      # ─── 헬스체크 및 DB체크가 모두 통과된 이후
-      - name: Send Discord notification
+      # 8) (Runner) 디스코드 알림 - 성공 시
+      - name: Notify Discord (success)
         if: ${{ success() }}
         run: |
           curl -H "Content-Type: application/json" \
-               -d '{"content":"✅ 배포 및 헬스체크가 성공적으로 완료되었습니다!\n▶ 브랜치: dev\n▶ 커밋: ${{ github.sha }}"}' \
+               -d '{
+                 "content": "✅ *배포 성공*\n브랜치: `dev`\n커밋: `${{ github.sha }}`\n로그: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+               }' \
                "${{ secrets.WEBHOOK_BACKEND }}"
+
+      # 9) (Runner) 디스코드 알림 - 실패 시
+      - name: Notify Discord (failure)
+        if: ${{ failure() }}
+        run: |
+          curl -H "Content-Type: application/json" \
+               -d '{
+                 "content": "❌ *배포 실패*\n브랜치: `dev`\n커밋: `${{ github.sha }}`\n자세한 로그: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\n원인 파악 후 재시도 바랍니다."
+               }' \
+               "${{ secrets.WEBHOOK_BACKEND }}"
+
