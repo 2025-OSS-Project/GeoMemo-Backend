@@ -21,6 +21,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  #빌드 시작
   build-health:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -88,12 +89,7 @@ jobs:
       - name: HTTP health check
         run: curl -sSf http://localhost:8000/api/health
 
-      # # 8) DB 헬스 체크 (dev 브랜치 push에만)
-      # - name: Database health check
-      #   if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev' }}
-      #   run: curl -sSf http://localhost:8000/api/dbhealth
-
-      # 9) 로그 및 정리(항상)
+      # 8) 로그 및 정리(항상)
       - name: Stop and remove container
         if: always()
         run: |
@@ -101,7 +97,7 @@ jobs:
           docker stop geomemo-test || true
           docker rm geomemo-test || true
 
-      # 10) AWS 자격증명 구성 (dev 브랜치 push에만)
+      # 9) AWS 자격증명 구성 (dev 브랜치 push에만)
       - name: Configure AWS credentials
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev' }}
         uses: aws-actions/configure-aws-credentials@v4
@@ -110,15 +106,85 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      # 11) Amazon ECR 로그인 (v2)
+      # 10) Amazon ECR 로그인 (v2)
       - name: Login to Amazon ECR
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev' }}
         uses: aws-actions/amazon-ecr-login@v2
 
-      # 12) 이미지 태깅 & 푸시 (dev 브랜치 push에만)
+      # 11) 이미지 태깅 & 푸시 (dev 브랜치 push에만)
       - name: Tag and push image to ECR
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev' }}
         run: |
           IMAGE_URI=067258969425.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/geomemo
           docker tag geomemo-backend:dev-${{ github.sha }} $IMAGE_URI:dev-${{ github.sha }}
           docker push $IMAGE_URI:dev-${{ github.sha }}
+
+
+  #EC2 배포 시작
+  deploy-to-ec2:
+    needs: build-health
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/dev'
+    timeout-minutes: 15
+
+    steps:
+      # 1) SSH 배포 스크립트 실행
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script: |
+            # ─── EC2 측: ECR 로그인이 IAM 역할로 가능
+            aws ecr get-login-password \
+              --region ${{ secrets.AWS_REGION }} \
+            | docker login \
+                --username AWS \
+                --password-stdin \
+                ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+
+            # ─── 최신 이미지 풀
+            docker pull \
+              ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/geomemo:dev-${{ github.sha }}
+
+            # ─── 이전 컨테이너 교체
+            docker stop geomemo || true
+            docker rm geomemo   || true
+
+            # ─── 새 컨테이너 실행
+            docker run -d \
+              --name geomemo \
+              -p 8000:8000 \
+              --env-file /home/${{ secrets.EC2_USER }}/app/.env \
+              ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/geomemo:dev-${{ github.sha }}
+
+            # ─── 헬스체크 (최대 20회 시도)
+            for i in {1..20}; do
+              code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/api/health || true)
+              if [ "$code" -eq 200 ]; then
+                echo "Service is healthy."
+                break
+              fi
+              sleep 3
+            done
+            curl -sSf http://localhost:8000/api/health
+
+            # ─── DB 헬스체크 (필요 시)
+            curl -sSf http://localhost:8000/api/dbhealth  
+
+        # 8) DB 헬스 체크 (dev 브랜치 push에만)
+      - name: Database health check
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev' }}
+        run: curl -sSf http://localhost:8000/api/dbhealth
+      
+      # ─── 헬스체크 및 DB체크가 모두 통과된 이후
+      - name: Send Discord notification
+        if: ${{ success() }}
+        run: |
+          curl -H "Content-Type: application/json" \
+               -d '{"content":"✅ 배포 및 헬스체크가 성공적으로 완료되었습니다!\n▶ 브랜치: dev\n▶ 커밋: ${{ github.sha }}"}' \
+               "${{ secrets.WEBHOOK_BACKEND }}"
