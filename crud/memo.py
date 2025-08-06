@@ -60,9 +60,10 @@ def delete_memo(db: Session, memo_id: int) -> bool:
 def update_memo_with_photos(
     db: Session,
     user_id: int,
+    memo_id: int,
     memo_update = UpdateMemoRequest
 ) -> model.MemoEntity:
-    memo = db.query(model.MemoEntity).filter_by(memo_id=memo_update.memo_id).first()
+    memo = db.query(model.MemoEntity).filter_by(memo_id=memo_id).first()
     if not memo:
         raise HTTPException(status_code=404, detail="메모가 존재하지 않습니다.")
 
@@ -71,31 +72,25 @@ def update_memo_with_photos(
 
     # 메모 수정
     memo.content = memo_update.content
+    memo.memo_id = memo_id
     memo.is_public = memo_update.is_public
     memo.updatedAt = datetime.utcnow()
 
     # 기존 사진 중 삭제 대상 제거
     if memo_update.remain_photo_ids is not None:
         db.query(model.PhotoEntity).filter(
-            model.PhotoEntity.memo_id == memo_update.memo_id,
+            model.PhotoEntity.memo_id == memo_id,
             ~model.PhotoEntity.photo_id.in_(memo_update.remain_photo_ids)
         ).delete(synchronize_session=False)
 
     # 새 사진 추가
     for url in memo_update.new_photo_urls:
-        photo = model.PhotoEntity(photo_url=url, memo_id=memo_update.memo_id)
+        photo = model.PhotoEntity(photo_url=url, memo_id=memo_id)
         db.add(photo)
 
     db.commit()
     db.refresh(memo)
     return memo
-
-
-
-
-    return APIResponse[List[MemoSchema]](success=True, data=data, error=None)
-
-
 
 def get_memo_detail(db: Session, memo_id: int) -> model.MemoEntity:
     memo = db.query(model.MemoEntity).filter(model.MemoEntity.memo_id==memo_id).first()
@@ -131,4 +126,30 @@ def get_all_memo(db: Session, user_id: int, view_setting: str="all"):
         return memos
     else:
         return get_memo(db, user_id)
+
+def scrap_memo(db: Session, user_id: int, memo_id: int):
+    memo_scrap = model.MemoScrapEntity(
+        user_id=user_id,
+        memo_id=memo_id
+    )
+    db.add(memo_scrap)
+    db.commit()
+    db.refresh(memo_scrap)  # 선택사항: 새로 생성된 ID 등을 확인할 때 유용
+    return memo_scrap
+
+def unscrap_memo(db: Session, user_id: int, memo_id: int):
+    memo_scraped = db.query(model.MemoScrapEntity).filter(
+    model.MemoScrapEntity.user_id == user_id,
+    model.MemoScrapEntity.memo_id == memo_id
+).first()
+
+    if memo_scraped:
+        db.delete(memo_scraped)
+        db.commit()
+        return True
     
+def get_scrap_memo(db: Session, user_id: int):
+    memos = db.query(model.MemoEntity).join(model.MemoScrapEntity).filter(
+        model.MemoScrapEntity.user_id == user_id
+    ).all()
+    return memos

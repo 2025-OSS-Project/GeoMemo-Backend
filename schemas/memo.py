@@ -24,6 +24,12 @@ class MemoSchema(BaseModel):
     location: LocationSchema
     user: UserSchema
 
+class MemoScrapSchema(BaseModel):
+    scrap_id: int
+    createdAt: datetime
+    user_id: int
+    memo_id: int
+    
 class CreateMemoRequest(BaseModel):
     content: str
     is_public: bool
@@ -37,7 +43,6 @@ class CreateMemoRequest(BaseModel):
 
 
 class UpdateMemoRequest(BaseModel):
-    memo_id: int
     content: str
     is_public: bool
     remain_photo_ids: list[int]
