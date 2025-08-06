@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from core.deps import get_current_user
+from models import model
 from schemas.memo import CreateMemoRequest, LocationSchema, MemoSchema, UpdateMemoRequest, UserSchema
 from schemas.response import APIResponse
-from crud.memo import create_memo, delete_memo, update_memo_with_photos
+from crud.memo import create_memo, delete_memo, get_memo, get_memo_detail, update_memo_with_photos, get_all_memo
 from db.database import get_db
 
 
@@ -11,7 +12,7 @@ router = APIRouter(prefix="/api/memo", tags=["Memo"])
 
 from fastapi import APIRouter, Depends, Body
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import List, Optional
 
 @router.post("/")
 async def create_memo_api(
@@ -99,3 +100,99 @@ async def update_memo_api(
 
     return APIResponse[MemoSchema](success=True, data=response_data)
 
+@router.get("/all")
+def read_all_memos(
+    view_setting: str = "all",
+    db: Session = Depends(get_db),  
+    current_user = Depends(get_current_user)
+):
+    """
+    전체 공개 메모 또는 팔로우한 사람의 공개 메모 또는 내 메모 조회
+    - view_setting: "all" | "follow" | "mine"
+    """
+    memos = get_all_memo(db, current_user.user_id, view_setting)
+    data = []
+    for memo in memos:
+        memo_data = {
+            "memoId": memo.memo_id,
+            "content": memo.content,
+            "createdAt": memo.createdAt.isoformat(),
+            "updatedAt": memo.updatedAt.isoformat(),
+            "isPublic": memo.is_public,
+            "fileUrl": [photo.photo_url for photo in memo.photos],  # 리스트 형태 OK
+            "location": {
+                "name": memo.location.name,
+                "latitude": memo.location.latitude,
+                "longitude": memo.location.longitude,
+                "address": memo.location.address,
+                "category": memo.location.category
+            },
+            "user": {
+                "userId": memo.user.user_id,
+                "username": memo.user.nickname,
+                "photoUrl": memo.user.profile_image_url
+            }
+        }
+        data.append(memo_data)
+    return APIResponse[List[MemoSchema]](success=True, data=data, error=None)
+
+
+@router.get("/{memo_id}")
+def memo_info(
+    memo_id: int,
+    db: Session = Depends(get_db)
+):
+    memo = get_memo_detail(db,memo_id)
+    memo = MemoSchema(
+    memoId=memo.memo_id,
+    content=memo.content,
+    createdAt=memo.createdAt,
+    updatedAt=memo.updatedAt,
+    isPublic=memo.is_public,
+    fileUrl=[photo.photo_url for photo in memo.photos],
+    location=LocationSchema(
+        name=memo.location.name,
+        latitude=memo.location.latitude,
+        longitude=memo.location.longitude,
+        address=memo.location.address,
+        category=memo.location.category,
+    ),
+    user=UserSchema(
+        userId=memo.user.user_id,
+        username=memo.user.nickname,
+        photoUrl=memo.user.profile_image_url
+        )
+    )
+    return APIResponse[MemoSchema](success=True, data=memo)
+
+
+@router.get("/")
+def get_all_memos(
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    memos = get_memo(db, current_user.user_id)
+    data = []
+    for memo in memos:
+        memo_data = {
+            "memoId": memo.memo_id,
+            "content": memo.content,
+            "createdAt": memo.createdAt.isoformat(),
+            "updatedAt": memo.updatedAt.isoformat(),
+            "isPublic": memo.is_public,
+            "fileUrl": [photo.photo_url for photo in memo.photos],  # 리스트 형태 OK
+            "location": {
+                "name": memo.location.name,
+                "latitude": memo.location.latitude,
+                "longitude": memo.location.longitude,
+                "address": memo.location.address,
+                "category": memo.location.category
+            },
+            "user": {
+                "userId": memo.user.user_id,
+                "username": memo.user.nickname,
+                "photoUrl": memo.user.profile_image_url
+            }
+        }
+        data.append(memo_data)
+    return APIResponse[MemoSchema](success=True, data=data)
