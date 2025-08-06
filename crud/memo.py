@@ -91,3 +91,44 @@ def update_memo_with_photos(
     return memo
 
 
+
+
+    return APIResponse[List[MemoSchema]](success=True, data=data, error=None)
+
+
+
+def get_memo_detail(db: Session, memo_id: int) -> model.MemoEntity:
+    memo = db.query(model.MemoEntity).filter(model.MemoEntity.memo_id==memo_id).first()
+    if not memo:
+        raise HTTPException(status_code=404, detail="메모를 찾을 수 없습니다.")
+    return memo
+
+def get_memo(db: Session, user_id):
+    memos = db.query(model.MemoEntity).filter(model.MemoEntity.user_id == user_id).all()
+    if not memos:
+        raise HTTPException(status_code=404, detail="메모를 찾을 수 없습니다.")
+    return memos
+
+def get_all_memo(db: Session, user_id: int, view_setting: str="all"):
+    if view_setting == "all":
+        memos = db.query(model.MemoEntity)\
+                  .filter(model.MemoEntity.is_public == True)\
+                  .all()
+        return memos
+
+    elif view_setting == "follow":
+    # 내가 팔로우한 사람들의 user_id 리스트
+        following_ids = db.query(model.FollowEntity.following_id)\
+                      .filter(model.FollowEntity.follower_id == user_id)\
+                      .subquery()
+    
+        memos = db.query(model.MemoEntity)\
+              .filter(
+                  model.MemoEntity.user_id.in_(following_ids),
+                  model.MemoEntity.is_public == True
+              )\
+              .all()
+        return memos
+    else:
+        return get_memo(db, user_id)
+    
