@@ -140,18 +140,18 @@ jobs:
             if ! command -v aws >/dev/null; then
               echo "[INFO] installing awscli"
               sudo apt-get update -y && \
-              sudo apt-get install -y awscli  # Ubuntu용 :contentReference[oaicite:3]{index=3}
+              sudo apt-get install -y awscli  
             fi
             # docker
             if ! command -v docker >/dev/null; then
               echo "[INFO] installing docker"
               sudo apt-get update -y && \
-              sudo apt-get install -y docker.io  # Ubuntu 공식 패키지 :contentReference[oaicite:4]{index=4}
+              sudo apt-get install -y docker.io  
               sudo systemctl enable --now docker
             fi
             # docker 그룹 권한
             if ! groups $USER | grep -q docker; then
-              sudo usermod -aG docker $USER  # 그룹 추가 :contentReference[oaicite:5]{index=5}
+              sudo usermod -aG docker $USER 
             fi
 
       # 2) (EC2) ECR 로그인
