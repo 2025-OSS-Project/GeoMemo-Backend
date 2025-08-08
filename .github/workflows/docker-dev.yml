@@ -21,35 +21,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # 빌드 시작
+  # ------------------------------------------------------------
+  # 1️⃣ 로컬 빌드·헬스체크 후 ECR Push
+  # ------------------------------------------------------------
   build-health:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
     steps:
-      # 1) 체크아웃: PR/수동실행/푸시 모두에서 올바른 ref
       - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.head_ref || github.ref }}
 
-      # 2) .env 복원 (포크 PR은 시크릿 미제공 → 건너뛰기)
-      - name: Restore .env from ENV secret
-        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
-        run: |
-          cat <<'EOF' > .env
-          ${{ secrets.ENV }}
-          EOF
+      # Buildx 설정
+      - uses: docker/setup-buildx-action@v3
 
-      - name: Note when DB tests will be skipped (fork PR)
-        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == true }}
-        run: echo "Fork PR detected → secrets not available; DB health check will be skipped."
-
-      # 3) Buildx
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      # 4) 빌드 + 로컬 로드(중요): 이후 docker run 가능
-      - name: Build Docker image (load to local engine)
+      # 이미지 빌드(+로컬 로드)
+      - name: Build Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -59,184 +48,132 @@ jobs:
           platforms: linux/amd64
           tags: geomemo-backend:dev-${{ github.sha }}
 
-      - name: Verify image locally available
-        run: docker image inspect geomemo-backend:dev-${{ github.sha }}
-
-      # 5) 컨테이너 실행
-      - name: Run container in background
+      # 로컬 컨테이너로 헬스체크
+      - name: Run container locally
         run: |
-          docker run -d --name geomemo-test \
-            -p 8000:8000 \
-            $( [ -f .env ] && echo "--env-file .env" ) \
-            geomemo-backend:dev-${{ github.sha }}
+          docker run -d --name geomemo-test -p 8000:8000 geomemo-backend:dev-${{ github.sha }}
 
-      # 6) 준비 대기: /api/health가 200 될 때까지 대기
-      - name: Wait for service readiness (HTTP 200 on /api/health)
+      - name: Wait for /api/health 200
         run: |
           for i in {1..20}; do
             code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/api/health || true)
-            echo "Attempt $i => HTTP $code"
-            if [ "$code" -eq 200 ]; then
-              exit 0
-            fi
+            [ "$code" = 200 ] && exit 0
             sleep 3
           done
-          echo "Service did not become healthy on /api/health" >&2
-          exit 1
+          echo "local health check failed" && exit 1
 
-      # 7) 앱 헬스 체크
-      - name: HTTP health check
-        run: curl -sSf http://localhost:8000/api/health
-
-      # 8) 로그 및 정리(항상)
-      - name: Stop and remove container
+      - name: Clean up local container
         if: always()
         run: |
-          docker logs geomemo-test || true
           docker stop geomemo-test || true
-          docker rm geomemo-test || true
+          docker rm   geomemo-test || true
 
-      # 9) AWS 자격증명 구성 (dev 브랜치 push에만)
+      # dev 브랜치 push 시 ECR 업로드
       - name: Configure AWS credentials
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev' }}
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region:            ${{ secrets.AWS_REGION }}
 
-      # 10) Amazon ECR 로그인 (v2)
       - name: Login to Amazon ECR
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev' }}
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
         uses: aws-actions/amazon-ecr-login@v2
 
-      # 11) 이미지 태깅 & 푸시 (dev 브랜치 push에만)
-      - name: Tag and push image to ECR
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev' }}
+      - name: Tag & push image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
         run: |
-          IMAGE_URI=067258969425.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/geomemo
-          docker tag geomemo-backend:dev-${{ github.sha }} $IMAGE_URI:dev-${{ github.sha }}
-          docker push $IMAGE_URI:dev-${{ github.sha }}
+          IMAGE=067258969425.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/geomemo:dev-${{ github.sha }}
+          docker tag geomemo-backend:dev-${{ github.sha }} $IMAGE
+          docker push $IMAGE
 
-  # EC2 배포 시작: 단계별로 세분화
+  # ------------------------------------------------------------
+  # 2️⃣ EC2 원격 배포 (런타임에 .env 주입)
+  # ------------------------------------------------------------
   deploy-to-ec2:
     needs: build-health
     runs-on: ubuntu-latest
-    if: >
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/dev'
-    timeout-minutes: 20
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    timeout-minutes: 25
+
     steps:
-      # 1) (EC2) ECR 로그인 (EC2 인스턴스에 ECR ReadOnly 역할이 있어야 함)
-      - name: EC2 - ECR login
+      # 2-1) .env 파일 생성 (.env 내용은 GitHub Secrets ENV)
+      - name: EC2 ─ create .env from secret
         uses: appleboy/ssh-action@v1.2.2
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
+          host:       ${{ secrets.EC2_HOST }}
+          username:   ${{ secrets.EC2_USER }}
+          key:        ${{ secrets.EC2_SSH_KEY }}
+          port:       22
           script: |
+            set -e
+            mkdir -p /home/${{ secrets.EC2_USER }}/app
+            cat <<'EOF' > /home/${{ secrets.EC2_USER }}/app/.env
+            ${{ secrets.ENV }}
+            EOF
+            chmod 600 /home/${{ secrets.EC2_USER }}/app/.env
+
+      # 2-2) ECR 로그인 & 최신 이미지 Pull
+      - name: EC2 ─ ECR login & pull
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host:       ${{ secrets.EC2_HOST }}
+          username:   ${{ secrets.EC2_USER }}
+          key:        ${{ secrets.EC2_SSH_KEY }}
+          port:       22
+          script: |
+            set -e
             aws ecr get-login-password --region ${{ secrets.AWS_REGION }} \
             | docker login --username AWS --password-stdin \
               ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
-
-      # 2) (EC2) 이미지 Pull
-      - name: EC2 - docker pull image
-        uses: appleboy/ssh-action@v1.2.2
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
-          script: |
             docker pull ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/geomemo:dev-${{ github.sha }}
 
-      # 3) (EC2) 기존 컨테이너 정지/삭제
-      - name: EC2 - stop & remove old container
+      # 2-3) 기존 컨테이너 정리 & 새 컨테이너 실행
+      - name: EC2 ─ deploy container
         uses: appleboy/ssh-action@v1.2.2
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
+          host:       ${{ secrets.EC2_HOST }}
+          username:   ${{ secrets.EC2_USER }}
+          key:        ${{ secrets.EC2_SSH_KEY }}
+          port:       22
           script: |
             docker stop geomemo || true
-            docker rm geomemo || true
-
-      # 4) (EC2) 새 컨테이너 실행
-      - name: EC2 - run new container
-        uses: appleboy/ssh-action@v1.2.2
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
-          script: |
-            docker run -d \
-              --name geomemo \
+            docker rm   geomemo || true
+            docker run -d --name geomemo \
               -p 8000:8000 \
               --env-file /home/${{ secrets.EC2_USER }}/app/.env \
               ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/geomemo:dev-${{ github.sha }}
 
-      # 5) (EC2) 준비 대기: /api/health 200까지 반복 확인
-      - name: EC2 - wait until /api/health 200
+      # 2-4) /api/health & DB 헬스체크
+      - name: EC2 ─ health checks
         uses: appleboy/ssh-action@v1.2.2
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
+          host:       ${{ secrets.EC2_HOST }}
+          username:   ${{ secrets.EC2_USER }}
+          key:        ${{ secrets.EC2_SSH_KEY }}
+          port:       22
           script: |
             for i in {1..20}; do
               code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/api/health || true)
-              echo "Attempt $i => HTTP $code"
-              if [ "$code" -eq 200 ]; then
-                exit 0
-              fi
+              [ "$code" = 200 ] && break
               sleep 3
             done
-            echo "Service did not become healthy on /api/health" >&2
-            exit 1
-
-      # 6) (EC2) 앱 헬스 체크 단일 검증
-      - name: EC2 - app health check
-        uses: appleboy/ssh-action@v1.2.2
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
-          script: |
             curl -sSf http://localhost:8000/api/health
-
-      # 7) (EC2) DB 헬스 체크 (엔드포인트가 있다면)
-      - name: EC2 - DB health check
-        uses: appleboy/ssh-action@v1.2.2
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
-          script: |
             curl -sSf http://localhost:8000/api/dbhealth
 
-      # 8) (Runner) 디스코드 알림 - 성공 시
+      # 2-5) 성공 알림
       - name: Notify Discord (success)
-        if: ${{ success() }}
+        if: success()
         run: |
           curl -H "Content-Type: application/json" \
-               -d '{
-                 "content": "✅ *배포 성공*\n브랜치: `dev`\n커밋: `${{ github.sha }}`\n로그: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-               }' \
+               -d '{"content":"✅ *배포 성공* (`dev`, `${{ github.sha }}`)\n<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}>"}' \
                "${{ secrets.WEBHOOK_BACKEND }}"
 
-      # 9) (Runner) 디스코드 알림 - 실패 시
+      # 2-6) 실패 알림
       - name: Notify Discord (failure)
-        if: ${{ failure() }}
+        if: failure()
         run: |
           curl -H "Content-Type: application/json" \
-               -d '{
-                 "content": "❌ *배포 실패*\n브랜치: `dev`\n커밋: `${{ github.sha }}`\n자세한 로그: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\n원인 파악 후 재시도 바랍니다."
-               }' \
+               -d '{"content":"❌ *배포 실패* (`dev`, `${{ github.sha }}`)\n로그: <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}>"}' \
                "${{ secrets.WEBHOOK_BACKEND }}"
-
