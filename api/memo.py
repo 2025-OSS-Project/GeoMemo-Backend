@@ -15,7 +15,7 @@ from db.database import get_db
 
 router = APIRouter(prefix="/api/memo", tags=["Memo"])
 
-@router.post("/")
+@router.post("/", response_model=APIResponse[MemoSchema])
 async def create_memo_api(
     memo_create: CreateMemoRequest,
     db: Session = Depends(get_db),
@@ -29,6 +29,7 @@ async def create_memo_api(
 
     memo_schema = MemoSchema(
         memoId=memo.memo_id,
+        title =memo.title,
         content=memo.content,
         createdAt=memo.createdAt,
         updatedAt=memo.updatedAt,
@@ -48,16 +49,16 @@ async def create_memo_api(
         ),
     )
 
-    return APIResponse[MemoSchema](success=True, data=memo_schema)
+    return APIResponse(success=True, data=memo_schema)
 
 
-@router.post("/delete/{memo_id}")
+@router.post("/delete/{memo_id}", response_model=APIResponse[int])
 def delete_memo_api(memo_id: int, db: Session = Depends(get_db)):
     delete_memo(db, memo_id)
     return APIResponse(success=True, data=memo_id)
 
 
-@router.post("/update/{memo_id}")
+@router.post("/update/{memo_id}", response_model = APIResponse[MemoSchema])
 async def update_memo_api(
     memo_update: UpdateMemoRequest,
     memo_id: int,
@@ -73,6 +74,7 @@ async def update_memo_api(
 
     response_data = MemoSchema(
         memoId=memo.memo_id,
+        title=memo.title,
         content=memo.content,
         createdAt=memo.createdAt,
         updatedAt=memo.updatedAt,
@@ -92,7 +94,7 @@ async def update_memo_api(
         ),
     )
 
-    return APIResponse[MemoSchema](success=True, data=response_data)
+    return APIResponse(success=True, data=response_data)
 
 
 @router.get("/all")
@@ -138,6 +140,7 @@ def get_scrapped_memos(
     for memo in memos:
         memo_data = {
             "memoId": memo.memo_id,
+            "title": memo.title,
             "content": memo.content,
             "createdAt": memo.createdAt.isoformat(),
             "updatedAt": memo.updatedAt.isoformat(),
@@ -169,6 +172,7 @@ def memo_info(
     memo = get_memo_detail(db, memo_id)
     memo_schema = MemoSchema(
         memoId=memo.memo_id,
+        title=memo.title,
         content=memo.content,
         createdAt=memo.createdAt,
         updatedAt=memo.updatedAt,
@@ -200,6 +204,7 @@ def get_all_memos(
     for memo in memos:
         memo_data = {
             "memoId": memo.memo_id,
+            "title": memo.title,
             "content": memo.content,
             "createdAt": memo.createdAt.isoformat(),
             "updatedAt": memo.updatedAt.isoformat(),

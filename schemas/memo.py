@@ -16,6 +16,7 @@ class UserSchema(BaseModel):
 
 class MemoSchema(BaseModel):
     memoId: int
+    title: str
     content: str
     createdAt: datetime
     updatedAt: datetime
@@ -27,13 +28,12 @@ class MemoSchema(BaseModel):
 class MemoScrapSchema(BaseModel):
     scrap_id: int
     createdAt: datetime
-    user_id: int
     memo_id: int
     
 class CreateMemoRequest(BaseModel):
+    title: str
     content: str
     is_public: bool
-    user_id: int
     location_name: str
     location_latitude: float
     location_longitude: float
@@ -44,6 +44,7 @@ class CreateMemoRequest(BaseModel):
 
 class UpdateMemoRequest(BaseModel):
     content: str
+    title: str
     is_public: bool
     remain_photo_ids: list[int]
     new_photo_urls: list[str]

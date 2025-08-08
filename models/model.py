@@ -84,6 +84,7 @@ class MemoEntity(Base):
     __tablename__ = "MemoEntity"
 
     memo_id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    title = Column(String(255))
     content = Column(Text, nullable=True)
     createdAt = Column(DateTime(timezone=True), server_default=func.now())
     updatedAt = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
