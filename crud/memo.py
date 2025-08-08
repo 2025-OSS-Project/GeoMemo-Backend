@@ -27,6 +27,7 @@ def create_memo(
     db.refresh(location)
     memo = model.MemoEntity(
         content=memo_create.content,
+        title = memo_create.title,
         is_public=memo_create.is_public,
         user_id=user_id,
         location_id = location.location_id,
@@ -72,6 +73,7 @@ def update_memo_with_photos(
 
     # 메모 수정
     memo.content = memo_update.content
+    memo.title = memo_update.title
     memo.memo_id = memo_id
     memo.is_public = memo_update.is_public
     memo.updatedAt = datetime.utcnow()
