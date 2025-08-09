@@ -106,28 +106,48 @@ def get_memo(db: Session, user_id):
         raise HTTPException(status_code=404, detail="메모를 찾을 수 없습니다.")
     return memos
 
-def get_all_memo(db: Session, user_id: int, view_setting: str="all"):
+def get_all_memo(
+    db: Session,
+    user_id: int,
+    view_setting: str = "all",
+    lat1: float = None,  # 왼쪽 위 위도
+    lon1: float = None,  # 왼쪽 위 경도
+    lat2: float = None,  # 오른쪽 아래 위도
+    lon2: float = None   # 오른쪽 아래 경도
+):
+    # 기본 쿼리: LocationEntity 조인
+    query = db.query(model.MemoEntity).join(model.LocationEntity)
+
     if view_setting == "all":
-        memos = db.query(model.MemoEntity)\
-                  .filter(model.MemoEntity.is_public == True)\
-                  .all()
-        return memos
+        query = query.filter(model.MemoEntity.is_public == True)
 
     elif view_setting == "follow":
-    # 내가 팔로우한 사람들의 user_id 리스트
+        # 내가 팔로우한 사람들의 user_id 리스트
         following_ids = db.query(model.FollowEntity.following_id)\
-                      .filter(model.FollowEntity.follower_id == user_id)\
-                      .subquery()
-    
-        memos = db.query(model.MemoEntity)\
-              .filter(
-                  model.MemoEntity.user_id.in_(following_ids),
-                  model.MemoEntity.is_public == True
-              )\
-              .all()
-        return memos
+            .filter(model.FollowEntity.follower_id == user_id)\
+            .subquery()
+
+        query = query.filter(
+            model.MemoEntity.user_id.in_(following_ids),
+            model.MemoEntity.is_public == True
+        )
     else:
-        return get_memo(db, user_id)
+        # 내 메모만
+        query = query.filter(model.MemoEntity.user_id == user_id)
+
+    # 좌표 범위 필터 추가
+    if None not in (lat1, lon1, lat2, lon2):
+        query = query.filter(
+            model.LocationEntity.latitude <= lat1,   # 위도: lat1이 더 큼
+            model.LocationEntity.latitude >= lat2,
+            model.LocationEntity.longitude >= lon1,  # 경도: lon1이 더 작음
+            model.LocationEntity.longitude <= lon2
+        )
+
+    # 마지막에 한 번만 all()
+    memos = query.all()
+    return memos
+
 
 def scrap_memo(db: Session, user_id: int, memo_id: int):
     memo_scrap = model.MemoScrapEntity(

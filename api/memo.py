@@ -100,10 +100,14 @@ async def update_memo_api(
 @router.get("/all")
 def read_all_memos(
     view_setting: str = "all",
+    lat1: float = None,  # 왼쪽 위 위도
+    lon1: float = None,  # 왼쪽 위 경도
+    lat2: float = None,  # 오른쪽 아래 위도
+    lon2: float = None,   # 오른쪽 아래 경도
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    memos = get_all_memo(db, current_user.user_id, view_setting)
+    memos = get_all_memo(db, current_user.user_id, view_setting, lat1, lon1, lat2, lon2)
     data = []
     for memo in memos:
         memo_data = {
