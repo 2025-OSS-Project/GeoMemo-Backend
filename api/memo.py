@@ -112,6 +112,7 @@ def read_all_memos(
     for memo in memos:
         memo_data = {
             "memoId": memo.memo_id,
+            "title": memo.title,
             "content": memo.content,
             "createdAt": memo.createdAt.isoformat(),
             "updatedAt": memo.updatedAt.isoformat(),
@@ -131,6 +132,7 @@ def read_all_memos(
             },
         }
         data.append(memo_data)
+    print(data)
     return APIResponse(success=True, data=data)
 
 
