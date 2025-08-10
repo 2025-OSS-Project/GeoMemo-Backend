@@ -97,7 +97,7 @@ async def update_memo_api(
     return APIResponse(success=True, data=response_data)
 
 
-@router.get("/all")
+@router.get("/all",response_model = APIResponse[MemoSchema])
 def read_all_memos(
     view_setting: str = "all",
     lat1: float = None,  # 왼쪽 위 위도
