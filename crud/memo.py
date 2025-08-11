@@ -17,8 +17,8 @@ def create_memo(
 ) -> model.MemoEntity:
     location = model.LocationEntity(
         name=memo_create.location_name,
-        latitude=memo_create.location_latitude,
-        longitude=memo_create.location_longitude,
+        latitude=round(memo_create.location_latitude, 7),
+        longitude=round(memo_create.location_longitude,7),
         address=memo_create.location_address,
         category=memo_create.location_category
     )
