@@ -1,10 +1,13 @@
 from fastapi import APIRouter, Depends, Query, HTTPException
 from core.deps import get_current_user
-from models.model import UserEntity
-from schemas.user import DeleteUserResponse, NicknameUpdateRequest, NicknameUpdateResponse, PasswordUpdateRequest, PasswordUpdateResponse, UserProfileImageUpdate, PrivacyUpdateRequest, StandardResponse
-from crud.user import delete_user, update_user_nickname, update_user_password
+
+from models.model import UserEntity, FollowEntity
+from schemas.user import DeleteUserResponse, NicknameUpdateRequest, NicknameUpdateResponse, PasswordUpdateRequest, PasswordUpdateResponse, UserProfileImageUpdate, PrivacyUpdateRequest, StandardResponse, UserProfileResponse
+from crud.user import delete_user, get_user_details, update_user_nickname, update_user_password
+
 from db.database import get_db
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
+from sqlalchemy import case, literal
 from enum import Enum
 from api.routes.follow import follow_router  # ✅ follow 라우터 import
 
@@ -71,27 +74,77 @@ def search_users(
     limit: int = Query(10, le=50, description="한 페이지당 결과 수"),
     offset: int = Query(0, description="건너뛸 유저 수"),
     db: Session = Depends(get_db),
-    current_user: UserEntity = Depends(get_current_user)  # ✅ JWT 인증 필요
+    current_user: UserEntity = Depends(get_current_user)  # ✅ JWT 인증 필요(나 기준)
 ):
     try:
-        query = db.query(UserEntity).filter(UserEntity.privacy_settings != 'closed')
+        # 1) 기본 검색 집합: 본인 제외 + closed 제외
+        base_q = db.query(UserEntity).filter(
+            UserEntity.user_id != current_user.user_id,
+            UserEntity.privacy_settings != 'closed',
+        )
 
+        # 2) 키워드 필터(부분일치). 대소문자 무시 원하면 ilike로 교체 가능
         if type == SearchType.nickname:
-            query = query.filter(UserEntity.nickname.like(f"%{keyword}%"))
+            base_q = base_q.filter(UserEntity.nickname.like(f"%{keyword}%"))
         elif type == SearchType.email:
-            query = query.filter(UserEntity.email.like(f"%{keyword}%"))
+            base_q = base_q.filter(UserEntity.email.like(f"%{keyword}%"))
+        else:
+            raise HTTPException(status_code=400, detail="invalid search type")
 
-        total = query.count()
-        users = query.offset(offset).limit(limit).all()
+        # 페이지네이션 total
+        total = base_q.count()
+
+        # 3) 나→상대 팔로우 상태 조인 (LEFT JOIN)
+        F = aliased(FollowEntity)
+        q = (
+            db.query(
+                UserEntity.user_id.label("user_id"),
+                UserEntity.email.label("email"),
+                UserEntity.nickname.label("nickname"),
+                UserEntity.profile_image_url.label("profile_image_url"),
+                case(
+                    (
+                        (F.following_id.is_(None)),
+                        literal(0)  # 관계 없음 → status=0 (팔로우하기)
+                    ),
+                    (
+                        (F.is_approved.is_(False)),
+                        literal(1)  # 요청 보냄/미승인 → status=1 (승인 대기중)
+                    ),
+                    else_=literal(2)  # 승인됨 → status=2 (팔로우 중)
+                ).label("status"),
+            )
+            .outerjoin(
+                F,
+                (F.follower_id == current_user.user_id) &
+                (F.following_id == UserEntity.user_id)
+            )
+            .filter(UserEntity.user_id != current_user.user_id)
+            .filter(UserEntity.privacy_settings != 'closed')
+        )
+
+        # 키워드 동일 적용
+        if type == SearchType.nickname:
+            q = q.filter(UserEntity.nickname.like(f"%{keyword}%"))
+        else:
+            q = q.filter(UserEntity.email.like(f"%{keyword}%"))
+
+        rows = (
+            q.order_by(UserEntity.nickname.asc(), UserEntity.user_id.asc())
+             .offset(offset)
+             .limit(limit)
+             .all()
+        )
 
         result = [
             {
-                "userId": user.user_id,
-                "username": user.email,
-                "nickname": user.nickname,
-                "profileImageUrl": user.profile_image_url
+                "userId": r.user_id,
+                "username": r.email,
+                "nickname": r.nickname,
+                "profileImageUrl": r.profile_image_url,
+                "status": int(r.status),  # 0/1/2
             }
-            for user in users
+            for r in rows
         ]
 
         return {
@@ -140,3 +193,21 @@ def update_view_settings(
     except Exception as e:
         db.rollback()
         return {"success": False, "error": str(e)}
+
+@router.get("/{user_id}", response_model=UserProfileResponse)
+def read_user_details(user_id: int, db: Session = Depends(get_db)):
+    result = get_user_details(db, user_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user_id = result["user_id"]
+
+
+    return UserProfileResponse(
+        user_id= user_id,
+        user_profile=result["user_profile"],
+        user_privacy=result["user_privacy"],
+        user_nickname= result["user_nickname"],
+        follower_count= result["follower_count"],
+        following_count= result["following_count"]
+    )
