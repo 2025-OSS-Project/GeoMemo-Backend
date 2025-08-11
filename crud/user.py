@@ -1,3 +1,4 @@
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from models.model import UserEntity as User
 from schemas.user import UserCreate, NicknameUpdateResponse, PasswordUpdateResponse, DeleteUserResponse
@@ -93,3 +94,23 @@ def delete_user(user_id: int, db: Session) -> DeleteUserResponse:
     db.commit()
 
     return DeleteUserResponse(success=True, data={"userId": user_id}, error=None)
+
+def get_user_details(db: Session, user_id:int):
+    user = db.query(model.UserEntity).filter_by(user_id=user_id).first()
+    # 팔로워 수 (나를 팔로우하는 사람 수)
+    follower_count = db.query(func.count(model.FollowEntity.follower_id)) \
+        .filter(model.FollowEntity.following_id == user_id) \
+        .scalar()
+
+    # 팔로잉 수 (내가 팔로우하는 사람 수)
+    following_count = db.query(func.count(model.FollowEntity.following_id)) \
+        .filter(model.FollowEntity.follower_id == user_id) \
+        .scalar()
+    return {
+        "user_id": user.user_id,
+        "user_profile": user.profile_image_url,
+        "user_privacy": user.privacy_settings,
+        "user_nickname": user.nickname,
+        "follower_count": follower_count,
+        "following_count": following_count
+    }
