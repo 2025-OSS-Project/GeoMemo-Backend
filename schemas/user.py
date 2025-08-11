@@ -49,3 +49,11 @@ class DeleteUserResponse(BaseModel):
 
 class ViewUpdateRequest(BaseModel):
     view_settings: Literal["all", "follows", "self"]
+
+class UserProfileResponse(BaseModel):
+    user_id: int
+    user_profile: Optional[str] = None
+    user_privacy: str
+    user_nickname: str
+    follower_count: int
+    following_count: int    
