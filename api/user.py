@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, Query, HTTPException
 from core.deps import get_current_user
+
 from models.model import UserEntity, FollowEntity
-from schemas.user import DeleteUserResponse, NicknameUpdateRequest, NicknameUpdateResponse, PasswordUpdateRequest, PasswordUpdateResponse, UserProfileImageUpdate, PrivacyUpdateRequest, StandardResponse
-from crud.user import delete_user, update_user_nickname, update_user_password
+from schemas.user import DeleteUserResponse, NicknameUpdateRequest, NicknameUpdateResponse, PasswordUpdateRequest, PasswordUpdateResponse, UserProfileImageUpdate, PrivacyUpdateRequest, StandardResponse, UserProfileResponse
+from crud.user import delete_user, get_user_details, update_user_nickname, update_user_password
+
 from db.database import get_db
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy import case, literal
@@ -191,3 +193,21 @@ def update_view_settings(
     except Exception as e:
         db.rollback()
         return {"success": False, "error": str(e)}
+
+@router.get("/{user_id}", response_model=UserProfileResponse)
+def read_user_details(user_id: int, db: Session = Depends(get_db)):
+    result = get_user_details(db, user_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user_id = result["user_id"]
+
+
+    return UserProfileResponse(
+        user_id= user_id,
+        user_profile=result["user_profile"],
+        user_privacy=result["user_privacy"],
+        user_nickname= result["user_nickname"],
+        follower_count= result["follower_count"],
+        following_count= result["following_count"]
+    )
