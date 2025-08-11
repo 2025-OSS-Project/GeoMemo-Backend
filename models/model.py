@@ -1,3 +1,5 @@
+import enum
+from sqlalchemy import Enum
 from sqlalchemy import (
     Column, Integer, String, Float, Text, Boolean,
     DateTime, ForeignKey, Double
@@ -6,6 +8,11 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from db.database import Base
 
+class InsightStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    PROCESSING = "PROCESSING"
+    DONE = "DONE"
+    FAILED = "FAILED"
 
 class UserEntity(Base):
     __tablename__ = "UserEntity"
@@ -72,9 +79,13 @@ class InsightEntity(Base):
     __tablename__ = "InsightEntity"
 
     insight_id = Column(Integer, primary_key=True, autoincrement=True, index=True)
-    emotion_avg = Column(Float, nullable=True)
     user_id = Column(Integer, ForeignKey("UserEntity.user_id", ondelete="CASCADE"), nullable=False)
     content = Column(Text, nullable=True)
+    status = Column(
+        Enum(InsightStatus, native_enum=False, length=50),
+        nullable=False,
+        default=InsightStatus.PENDING.value
+    )
     createdAt = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("UserEntity", back_populates="insights")

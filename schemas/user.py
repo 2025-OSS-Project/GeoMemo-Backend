@@ -22,6 +22,7 @@ class UserLogin(BaseModel):
 #비밀번호 변경 스키마
 class PasswordUpdateRequest(BaseModel):
     password: str
+    new_password: str
 
 class PasswordUpdateResponse(BaseModel):
     success: bool

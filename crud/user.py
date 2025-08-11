@@ -4,6 +4,7 @@ from schemas.user import UserCreate, NicknameUpdateResponse, PasswordUpdateRespo
 from core.security import hash_password, verify_password
 from datetime import datetime
 from models import model
+from core.security import hash_password, verify_password  # verify_password 추가
 
 def get_user_by_email(db: Session, email: str) -> User | None:
     return db.query(User).filter(User.email == email).first()
@@ -29,14 +30,31 @@ def authenticate_user(db: Session, email: str, password: str) -> User | None:
         return None
     return user
 
-def update_user_password(db: Session, user_id: int, new_password: str) -> PasswordUpdateResponse:
+
+def update_user_password(db, user_id: int, password: str, new_password: str):
+    # 사용자 조회
     user = db.query(model.UserEntity).filter(model.UserEntity.user_id == user_id).first()
     if not user:
-        return None
+        return PasswordUpdateResponse(
+            success=False,
+            data=None,
+            error="사용자를 찾을 수 없습니다."
+        )
+
+    # 기존 비밀번호 검증
+    if not verify_password(password, user.password):
+        return PasswordUpdateResponse(
+            success=False,
+            data=None,
+            error="기존 비밀번호가 일치하지 않습니다."
+        )
+
+    # 새 비밀번호 저장
     user.password = hash_password(new_password)
     user.updatedAt = datetime.now()
     db.commit()
     db.refresh(user)
+
     return PasswordUpdateResponse(
         success=True,
         data={
@@ -45,6 +63,7 @@ def update_user_password(db: Session, user_id: int, new_password: str) -> Passwo
         },
         error=None
     )
+
 
 def update_user_nickname(db: Session, user_id: int, new_nickname: str) -> NicknameUpdateResponse:
     user = db.query(model.UserEntity).filter(model.UserEntity.user_id == user_id).first()

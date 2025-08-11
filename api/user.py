@@ -25,7 +25,7 @@ def update_password(
     current_user: UserEntity = Depends(get_current_user),
     session: Session = Depends(get_db)
 ):
-    return update_user_password(session, current_user.user_id, body.password)
+    return update_user_password(session, current_user.user_id, body.password, body.new_password)
 
 
 @router.post("/update-nickname", response_model=NicknameUpdateResponse)
