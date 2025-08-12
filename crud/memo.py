@@ -173,6 +173,6 @@ def unscrap_memo(db: Session, user_id: int, memo_id: int):
 def get_scrap_memo(db: Session, user_id: int):
     memos = db.query(model.MemoEntity).join(model.MemoScrapEntity).filter(
         model.MemoScrapEntity.user_id == user_id,
-        model.MemoScrapEntity.is_public == True
+        model.MemoEntity.is_public == True
     ).all()
     return memos
