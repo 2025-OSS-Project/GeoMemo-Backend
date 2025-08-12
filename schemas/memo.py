@@ -49,3 +49,11 @@ class UpdateMemoRequest(BaseModel):
     remain_photo_ids: list[int]
     new_photo_urls: list[str]
 
+class MemoListSchema(BaseModel):
+    memoId: int
+    title: str
+    createdAt: datetime
+    updatedAt: datetime
+    isPublic: bool
+    location: LocationSchema
+    user: UserSchema
