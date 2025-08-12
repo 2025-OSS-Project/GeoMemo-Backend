@@ -271,13 +271,14 @@ def check_is_scraped(
 
     return {"is_scraped": is_scraped}
 
-@router.get("/{user_id}", response_model=List[MemoSchema])
+@router.get("/user/{user_id}", response_model=APIResponse[List[MemoSchema]])
 def get_user_memos(
     user_id: int,
     db: Session = Depends(get_db),
 ):
     memos = db.query(model.MemoEntity).filter(
-        model.MemoEntity.user_id == user_id
+        model.MemoEntity.user_id == user_id,
+        model.MemoEntity.is_public == True
     ).all()
     data = []
     for memo in memos:
