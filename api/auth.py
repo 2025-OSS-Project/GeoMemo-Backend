@@ -10,9 +10,9 @@ from models.model import UserEntity, EmailVerifyEntity
 from datetime import datetime, timedelta
 from core.deps import get_current_user
 import random
-import os
 import smtplib
 from email.message import EmailMessage
+from core import settings
 from dotenv import load_dotenv
 load_dotenv()  # .env 파일 로드
 
@@ -23,13 +23,12 @@ router = APIRouter(
 
 # --- Gmail SMTP 발송 헬퍼 ---
 def send_email_gmail(to_email: str, subject: str, body: str):
-    smtp_user = os.getenv("SMTP_USER")   # 예: yourname@gmail.com
-    smtp_pass = os.getenv("SMTP_PASS")   # 예: 앱 비밀번호 (일반 비번 X)
-    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
-    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = settings.SMTP_USER
+    smtp_pass = settings.SMTP_PASS
+    smtp_host = settings.SMTP_HOST
+    smtp_port = settings.SMTP_PORT
 
     if not smtp_user or not smtp_pass:
-        # 설정 누락 시 개발 단계에서는 예외 대신 로그만 남기고 패스해도 됨
         print("[WARN] SMTP_USER/SMTP_PASS not set. Skipping real email send.")
         print(f"[MOCK] {to_email} → {subject}\n{body}")
         return
