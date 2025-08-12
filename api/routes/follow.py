@@ -173,6 +173,7 @@ def get_followings(
         for follow in follows:
             user = db.query(UserEntity).filter_by(user_id=follow.following_id).first()
             result.append({
+                "userId": user.user_id,  # ✅ userId 추가
                 "email": user.email,
                 "nickname": user.nickname,
                 "profileImageUrl": user.profile_image_url,
@@ -212,6 +213,7 @@ def get_followers(
         for follow in follows:
             user = db.query(UserEntity).filter_by(user_id=follow.follower_id).first()
             result.append({
+                "userId": user.user_id,  # ✅ userId 추가
                 "email": user.email,
                 "nickname": user.nickname,
                 "profileImageUrl": user.profile_image_url,
