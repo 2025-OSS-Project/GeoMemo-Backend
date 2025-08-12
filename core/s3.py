@@ -6,7 +6,7 @@ router = APIRouter()
 
 # s3_client는 보통 전역으로 만들거나, Depends로 주입해도 됨
 s3_client = boto3.client('s3')
-BUCKET_NAME = "your-bucket-name"
+BUCKET_NAME = "geomemo"
 
 @router.get("/generate-presigned-url")
 async def generate_presigned_url(

@@ -257,3 +257,50 @@ def unscrap_memo_route(
 ):
     unscrap_memo(db, current_user.user_id, memo_id)
     return APIResponse(success=True, data=None)
+
+@router.get("/check-is-scraped/{memo_id}")
+def check_is_scraped(
+    memo_id: int,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    is_scraped = db.query(model.MemoScrapEntity).filter(
+        model.MemoScrapEntity.memo_id == memo_id,
+        model.MemoScrapEntity.user_id == current_user.user_id
+    ).first() is not None
+
+    return {"is_scraped": is_scraped}
+
+@router.get("/{user_id}", response_model=List[MemoSchema])
+def get_user_memos(
+    user_id: int,
+    db: Session = Depends(get_db),
+):
+    memos = db.query(model.MemoEntity).filter(
+        model.MemoEntity.user_id == user_id
+    ).all()
+    data = []
+    for memo in memos:
+        memo_data = {
+            "memoId": memo.memo_id,
+            "title": memo.title,
+            "content": memo.content,
+            "createdAt": memo.createdAt.isoformat(),
+            "updatedAt": memo.updatedAt.isoformat(),
+            "isPublic": memo.is_public,
+            "fileUrl": [photo.photo_url for photo in memo.photos],
+            "location": {
+                "name": memo.location.name,
+                "latitude": memo.location.latitude,
+                "longitude": memo.location.longitude,
+                "address": memo.location.address,
+                "category": memo.location.category,
+            },
+            "user": {
+                "userId": memo.user.user_id,
+                "username": memo.user.nickname,
+                "photoUrl": memo.user.profile_image_url,
+            },
+        }
+        data.append(memo_data)
+    return APIResponse(success=True, data=data)

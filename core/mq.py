@@ -1,5 +1,6 @@
 # main.py
 import json
+import os
 import pika
 from fastapi import APIRouter, FastAPI, Depends
 from sqlalchemy.orm import Session
@@ -8,16 +9,18 @@ from crud.memo import get_all_memo
 from db.database import get_db
 from models import model
 
+
 router = APIRouter(prefix="/api/mq", tags=["Mq"])
 
-RABBITMQ_URL = "amqp://guest:guest@localhost:5672/"
+RABBITMQ_URL = os.getenv("AMAZON_MQ_URL")  # AWS MQ 브로커 URL
 QUEUE_NAME = "geomemo"
 
+params = pika.URLParameters(RABBITMQ_URL)
+connection = pika.BlockingConnection(params)
+channel = connection.channel()
+channel.queue_declare(queue=QUEUE_NAME, durable=True)
+
 def publish_to_mq(message: dict):
-    params = pika.URLParameters(RABBITMQ_URL)
-    connection = pika.BlockingConnection(params)
-    channel = connection.channel()
-    channel.queue_declare(queue=QUEUE_NAME, durable=True)
     channel.basic_publish(
         exchange="",
         routing_key=QUEUE_NAME,
@@ -27,7 +30,6 @@ def publish_to_mq(message: dict):
             delivery_mode=2  # persistent
         )
     )
-    connection.close()
 
 
 @router.post("/insights")
@@ -60,19 +62,19 @@ def create_insight(
 
     # 메모ID 기준으로 dict로 매핑
     emotion_map = {e.memo_id: e for e in emotions}
-    location_map = {l.memo_id: l for l in locations}
+    location_map = {l.location_id: l for l in locations}
 
     result = []
     for memo in memos:
         emotion = emotion_map.get(memo.memo_id)
-        location = location_map.get(memo.memo_id)
+        location = location_map.get(memo.location_id)  # location_id 기준 조회
         result.append({
         "timestamp": memo.createdAt.isoformat(),
         "label": emotion.emotion_label if emotion else None,
         "score": emotion.emotion_score if emotion else None,
         "category": location.category if location else None,
         "placeName": location.name if location else None,
-    })
+        })
     mq_message = {
         "userId": current_user.user_id,
         "logs": result
