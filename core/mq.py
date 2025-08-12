@@ -15,23 +15,21 @@ router = APIRouter(prefix="/api/mq", tags=["Mq"])
 RABBITMQ_URL = os.getenv("RABBITMQ_URL")  # AWS MQ 브로커 URL
 QUEUE_NAME = "geomemo"
 
-params = pika.URLParameters(RABBITMQ_URL)
-connection = pika.BlockingConnection(params)
-channel = connection.channel()
-channel.queue_declare(queue=QUEUE_NAME, durable=True)
 
 def publish_to_mq(message: dict):
+    params = pika.URLParameters(RABBITMQ_URL)
+    connection = pika.BlockingConnection(params)
+    channel = connection.channel()
+
+    channel.queue_declare(queue=QUEUE_NAME, durable=True)
     channel.basic_publish(
-        exchange="",
+        exchange='',
         routing_key=QUEUE_NAME,
         body=json.dumps(message),
-        properties=pika.BasicProperties(
-            content_type="application/json",
-            delivery_mode=2  # persistent
-        )
+        properties=pika.BasicProperties(delivery_mode=2),
     )
-
-
+    connection.close()
+    
 @router.post("/insights")
 def create_insight(
     lat1: float = None,  # 왼쪽 위 위도
