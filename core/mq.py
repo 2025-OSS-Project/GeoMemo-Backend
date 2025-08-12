@@ -12,7 +12,7 @@ from models import model
 
 router = APIRouter(prefix="/api/mq", tags=["Mq"])
 
-RABBITMQ_URL = os.getenv("RAABITMQ_URL")  # AWS MQ 브로커 URL
+RABBITMQ_URL = os.getenv("RABBITMQ_URL")  # AWS MQ 브로커 URL
 QUEUE_NAME = "geomemo"
 
 params = pika.URLParameters(RABBITMQ_URL)
