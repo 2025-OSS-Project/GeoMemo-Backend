@@ -99,21 +99,11 @@ def get_user_details(db: Session, user_id:int):
     user = db.query(model.UserEntity).filter(model.UserEntity.user_id==user_id).first()
     if not user:
         return None  # 또는 예외 발생
-    print("DEBUG: user =", user)
-    # 팔로워 수 (나를 팔로우하는 사람 수)
-    follower_count = db.query(func.count(model.FollowEntity.follower_id)) \
-        .filter(model.FollowEntity.following_id == user_id) \
-        .scalar() or 0
-
-    # 팔로잉 수 (내가 팔로우하는 사람 수)
-    following_count = db.query(func.count(model.FollowEntity.following_id)) \
-        .filter(model.FollowEntity.follower_id == user_id) \
-        .scalar() or 0
     return {
         "user_id": user.user_id,
         "user_profile": user.profile_image_url,
         "user_privacy": user.privacy_settings,
         "user_nickname": user.nickname,
-        "follower_count": follower_count,
-        "following_count": following_count
+        "follower_count": user.follower_count,
+        "following_count": user.following_count
     }

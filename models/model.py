@@ -30,6 +30,9 @@ class UserEntity(Base):
     createdAt = Column(DateTime(timezone=True), server_default=func.now())
     updatedAt = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
+    follower_count = Column(Integer, nullable=False, default=0)
+    following_count = Column(Integer, nullable=False, default=0)
+
     memos = relationship("MemoEntity", back_populates="user", cascade="all, delete-orphan", passive_deletes=True)
     memo_scraps = relationship("MemoScrapEntity", back_populates="user", cascade="all, delete-orphan", passive_deletes=True)
     insights = relationship("InsightEntity", back_populates="user", cascade="all, delete-orphan", passive_deletes=True)

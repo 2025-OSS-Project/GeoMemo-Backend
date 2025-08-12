@@ -31,15 +31,18 @@ def follow_user(
         return FollowActionResponse(success=False, error="해당 유저는 팔로우 요청을 받을 수 없습니다.")
     
     is_approved = target_user.privacy_settings == "open"
+    
+    current_user.following_count += 1
+    target_user.follower_count += 1
 
     new_follow = FollowEntity(
         follower_id=current_user.user_id,
         following_id=user_id,
-        is_approved=is_approved
+        is_approved=is_approved 
     )
 
     try:
-        db.add(new_follow)
+        db.add(new_follow)  
         db.commit()
         return FollowActionResponse(success=True, error=None)
     except Exception as e:
@@ -61,9 +64,14 @@ def unfollow_user(
     if not follow:
         return FollowActionResponse(success=False, error="팔로우 관계가 존재하지 않습니다.")
 
+    target_user = db.query(UserEntity).filter_by(user_id=user_id).first()
     try:
         db.delete(follow)
+        current_user.following_count -= 1
+        target_user.follower_count -= 1
         db.commit()
+        #팔로잉 - 1 
+        
         return FollowActionResponse(success=True, error=None)
     except Exception as e:
         db.rollback()
@@ -85,10 +93,13 @@ def accept_follow_request(
 
     if follow.is_approved:
         return FollowActionResponse(success=False, error="이미 승인된 팔로우입니다.")
-
+    target_user = db.query(UserEntity).filter_by(user_id=user_id).first()
     try:
         follow.is_approved = True
+        current_user.follower_count += 1
+        target_user.following_count += 1
         db.commit()
+        
         return FollowActionResponse(success=True, error=None)
     except Exception as e:
         db.rollback()
@@ -133,10 +144,13 @@ def defollow_user(
 
     if not follow:
         return FollowActionResponse(success=False, error="해당 유저는 현재 나를 팔로우하고 있지 않습니다.")
-
+    target_user = db.query(UserEntity).filter_by(user_id=user_id).first()
     try:
         db.delete(follow)
+        current_user.follower_count -= 1
+        target_user.following_count -= 1
         db.commit()
+        
         return FollowActionResponse(success=True, error=None)
     except Exception as e:
         db.rollback()
