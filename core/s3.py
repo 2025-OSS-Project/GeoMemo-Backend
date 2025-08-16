@@ -5,8 +5,16 @@ import boto3
 router = APIRouter()
 
 # s3_client는 보통 전역으로 만들거나, Depends로 주입해도 됨
-s3_client = boto3.client('s3')
+from botocore.config import Config
+import boto3, os
+
 BUCKET_NAME = "geomemo"
+AWS_REGION  = "ap-northeast-2"
+
+boto_cfg = Config(signature_version="s3v4")
+session = boto3.session.Session(region_name=AWS_REGION)
+s3_client = session.client("s3", config=boto_cfg)
+
 
 @router.get("/generate-presigned-url")
 async def generate_presigned_url(
