@@ -119,9 +119,10 @@ def get_all_memo(
     query = db.query(model.MemoEntity).join(model.LocationEntity)
 
     if view_setting == "all":
-        query = query.filter(model.MemoEntity.is_public == True)
+        query = query.filter(model.MemoEntity.is_public == True,
+                             model.MemoEntity.user_id != user_id)
 
-    elif view_setting == "follow":
+    elif view_setting == "follows":
         # 내가 팔로우한 사람들의 user_id 리스트
         following_ids = db.query(model.FollowEntity.following_id)\
             .filter(model.FollowEntity.follower_id == user_id)\

@@ -216,8 +216,9 @@ def recommend_places(
         .first()
     )
     if recent_memo and recent_memo.emotions:
-        emo = recent_memo.emotions[0]
-        recent_emotion = {"label": emo.label, "score": emo.score}
+        emo = recent_memo.emotions
+        emo.label
+        recent_emotion = {}
     else:
         recent_emotion = None
 
