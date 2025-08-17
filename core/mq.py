@@ -197,15 +197,15 @@ def recommend_places(
     )
 
     candidates = [
-        {
-            "locationId": loc.location_id,
-            "name":       loc.name,
-            "category":   loc.category,
-            "lat":        float(loc.latitude or 0),
-            "lon":        float(loc.longitude or 0),
-        }
-        for loc in locations
-    ]
+    {
+        "placeId":   loc.location_id,              # locationId → placeId
+        "name":      loc.name,
+        "category":  loc.category,
+        "latitude":  float(loc.latitude or 0),    # lat → latitude
+        "longitude": float(loc.longitude or 0),   # lon → longitude
+    }
+    for loc in locations
+]
 
     # ── context ──
 
