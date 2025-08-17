@@ -201,28 +201,35 @@ def recommend_places(
             "locationId": loc.location_id,
             "name":       loc.name,
             "category":   loc.category,
-            "lat":        float(getattr(loc, "latitude", 0) or 0),
-            "lon":        float(getattr(loc, "longitude", 0) or 0),
+            "lat":        float(loc.latitude or 0),
+            "lon":        float(loc.longitude or 0),
         }
         for loc in locations
     ]
+
     # ── context ──
 
-    # 1. recentEmotion
+    # 1. recentEmotion (최근 작성한 메모의 감정 가져오기)
     recent_memo = (
         db.query(model.MemoEntity)
         .filter(model.MemoEntity.user_id == current_user.user_id)
         .order_by(model.MemoEntity.createdAt.desc())
         .first()
     )
-    if recent_memo and recent_memo.emotions:
-        emo = recent_memo.emotions
-        emo.label
-        recent_emotion = {}
+    if recent_memo:
+        emotions = (
+            db.query(model.EmotionEntity)
+            .filter(model.EmotionEntity.memo_id == recent_memo.memo_id)
+            .all()
+        )
+        recent_emotion = [
+            {"label": e.emotion_label, "score": e.emotion_score}
+            for e in emotions
+        ]
     else:
         recent_emotion = None
 
-    # 2. favCategories
+    # 2. favCategories (사용자가 많이 방문한 카테고리)
     user_memos = (
         db.query(model.MemoEntity)
         .join(model.LocationEntity, model.MemoEntity.location_id == model.LocationEntity.location_id)
@@ -232,7 +239,7 @@ def recommend_places(
     cat_counts = Counter([m.location.category for m in user_memos if m.location and m.location.category])
     fav_categories = dict(cat_counts)
 
-    # 3. scrapPlaceIds
+    # 3. scrapPlaceIds (스크랩한 장소)
     scrap_place_ids = [
         s.memo.location_id
         for s in db.query(model.MemoScrapEntity)
@@ -242,7 +249,7 @@ def recommend_places(
         if s.memo and s.memo.location_id
     ]
 
-    # 4. followedUserIds
+    # 4. followedUserIds (내가 팔로우한 사용자 ID)
     followed_user_ids = [
         f.following_id
         for f in db.query(model.FollowEntity)
@@ -250,7 +257,7 @@ def recommend_places(
         .all()
     ]
 
-    # 5. placeSignals
+    # 5. placeSignals (장소별 긍정 비율, 팔로우한 유저의 긍정 개수)
     place_signals = []
     for loc in locations:
         memos_for_loc = (
@@ -266,9 +273,14 @@ def recommend_places(
             pos = 0
             followed_pos_count = 0
             for m in memos_for_loc:
-                for e in m.emotions:
+                emotions = (
+                    db.query(model.EmotionEntity)
+                    .filter(model.EmotionEntity.memo_id == m.memo_id)
+                    .all()
+                )
+                for e in emotions:
                     total += 1
-                    if e.label == "긍정":  # ← 감정 label 기준 (DB에 저장된 값에 맞게 바꿔야 함)
+                    if e.emotion_label == "긍정":  # DB에 저장된 값에 맞게 변경
                         pos += 1
                         if m.user_id in followed_user_ids:
                             followed_pos_count += 1
@@ -282,6 +294,7 @@ def recommend_places(
             }
         )
 
+    # 최종 context
     context = {
         "recentEmotion": recent_emotion,
         "favCategories": fav_categories,
@@ -289,17 +302,22 @@ def recommend_places(
         "followedUserIds": followed_user_ids,
         "placeSignals": place_signals,
     }
+
     corr_id = str(uuid.uuid4())
-    payload = {"userId": current_user.user_id, "top": top, "candidates": candidates, "context": context, "debug": True}
+    payload = {
+        "userId": current_user.user_id,
+        "top": top,
+        "candidates": candidates,
+        "context": context,
+        "debug": True
+    }
     _publish(RECO_REQ_QUEUE, payload, reply_to=RECO_RES_QUEUE, correlation_id=corr_id)
 
-    # 클라이언트는 /ws/{userId}로 응답 수신
     return {
         "requestId": corr_id,
         "queued": True,
         "candidateCount": len(candidates)
     }
-
 
 # ── 감정 분석(단방향) ────────────────────────────────────────────────────────
 @router.post("/emotion_analysis/{memo_id}")
