@@ -33,8 +33,7 @@ EMOTION_TTL_MS  = os.getenv("EMOTION_TTL_MS")      # e.g. "600000"
 INSIGHT_TTL_MS  = os.getenv("INSIGHT_TTL_MS")      # e.g. "900000"
 RECO_TTL_MS     = os.getenv("RECO_TTL_MS")         # e.g. "300000"
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")  ### 수정됨
-redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)  ### 수정됨
+redis_client = redis.Redis(host="localhost", port=6379, db=0)
 
 def _queue_args(ttl_ms: Optional[str]) -> dict:
     args = {}
