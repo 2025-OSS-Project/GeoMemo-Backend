@@ -35,10 +35,15 @@ EMOTION_TTL_MS  = os.getenv("EMOTION_TTL_MS")      # e.g. "600000"
 INSIGHT_TTL_MS  = os.getenv("INSIGHT_TTL_MS")      # e.g. "900000"
 RECO_TTL_MS     = os.getenv("RECO_TTL_MS")         # e.g. "300000"
 REDIS_HOST = os.getenv("REDIS_HOST")
+ssl_context = ssl.create_default_context()
+ssl_context.check_hostname = False      # 테스트용, 프로덕션에서는 True 권장
+ssl_context.verify_mode = ssl.CERT_NONE # 테스트용, 프로덕션에서는 ssl.CERT_REQUIRED
+
 redis_client = redis.Redis(
-    host=REDIS_HOST,  # MemoryDB 엔드포인트
-    port=6379,                                                    # MemoryDB 기본 포트
-    db=0
+    host=REDIS_HOST,
+    port=6379,
+    ssl=True,
+    ssl_context=ssl_context
 )
 
 def _queue_args(ttl_ms: Optional[str]) -> dict:
