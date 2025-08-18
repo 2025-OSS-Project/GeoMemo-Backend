@@ -33,7 +33,11 @@ EMOTION_TTL_MS  = os.getenv("EMOTION_TTL_MS")      # e.g. "600000"
 INSIGHT_TTL_MS  = os.getenv("INSIGHT_TTL_MS")      # e.g. "900000"
 RECO_TTL_MS     = os.getenv("RECO_TTL_MS")         # e.g. "300000"
 
-redis_client = redis.Redis(host="localhost", port=6379, db=0)
+redis_client = redis.Redis(
+    host="host.docker.internal",  # 호스트 EC2의 Redis 접근
+    port=6379,                    # Redis 기본 포트
+    db=0                           # 사용할 DB 번호
+)
 
 def _queue_args(ttl_ms: Optional[str]) -> dict:
     args = {}
