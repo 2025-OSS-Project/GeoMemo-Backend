@@ -52,6 +52,7 @@ redis_client = redis.Redis(
 )
 
 
+
 def _queue_args(ttl_ms: Optional[str]) -> dict:
     args = {}
     if MQ_QUEUE_TYPE:
