@@ -40,12 +40,12 @@ ssl_context.check_hostname = False      # 테스트용, 프로덕션에서는 Tr
 ssl_context.verify_mode = ssl.CERT_NONE # 테스트용, 프로덕션에서는 ssl.CERT_REQUIRED
 
 redis_client = redis.Redis(
-    host=REDIS_HOST,
-    port=6379,
-    db=0,
-    ssl=True,                 # TLS 사용
-    ssl_cert_reqs=ssl.CERT_NONE  # 테스트용, 프로덕션에서는 ssl.CERT_REQUIRED 권장
+    host=REDIS_HOST, port=6379, db=0,
+    ssl=True,
+    username="default",
+    password="",        # nopass인 경우 임시로 동작하기도 하나, 보안상 비권장
 )
+
 
 def _queue_args(ttl_ms: Optional[str]) -> dict:
     args = {}
