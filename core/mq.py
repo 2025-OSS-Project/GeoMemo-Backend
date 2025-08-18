@@ -124,17 +124,18 @@ def consume_messages():
 # ── 인사이트(단방향) ────────────────────────────────────────────────────────
 from datetime import datetime, timedelta
 
-@router.post("/insights")
-def create_insight_this_week(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def create_insight_for_user(user_id: int, db: Session):
     now = datetime.now()
     start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
     end   = (start + timedelta(days=6)).replace(hour=23, minute=59, second=59, microsecond=999999)
 
-    insight = model.InsightEntity(user_id=current_user.user_id, status=model.InsightStatus.PENDING)
-    db.add(insight); db.commit(); db.refresh(insight)
+    insight = model.InsightEntity(user_id=user_id, status=model.InsightStatus.PENDING)
+    db.add(insight)
+    db.commit()
+    db.refresh(insight)
 
     memos = db.query(model.MemoEntity).filter(
-        model.MemoEntity.user_id == current_user.user_id,
+        model.MemoEntity.user_id == user_id,
         model.MemoEntity.createdAt.between(start, end)
     ).all()
 
@@ -155,10 +156,10 @@ def create_insight_this_week(db: Session = Depends(get_db), current_user=Depends
         "placeName": (location_map.get(m.location_id).name if location_map.get(m.location_id) else None),
     } for m in memos]
 
-    # 인사이트 요청 발행(응답은 DB에 저장)
-    payload = {"insightId": insight.insight_id, "userId": current_user.user_id, "logs": logs}
+    payload = {"insightId": insight.insight_id, "userId": user_id, "logs": logs}
     _publish(INSIGHT_REQ_QUEUE, payload)
     return {"insightId": insight.insight_id, "status": insight.status}
+
 
 @router.get("/insights/{user_id}")
 def get_insight_status(user_id: int, db: Session = Depends(get_db)):
