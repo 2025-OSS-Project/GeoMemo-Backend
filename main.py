@@ -5,8 +5,11 @@ from api import auth, memo, user,system  # 예시
 from fastapi.openapi.utils import get_openapi
 
 from core import mq, s3
+from exception.handler import set_error_handlers
 
 app = FastAPI()
+set_error_handlers(app)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 서버 시작 시 실행할 코드

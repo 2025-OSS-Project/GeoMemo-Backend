@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from core.deps import get_current_user
 from core.jwt import decode_access_token
 from db.database import get_db
+from exception.exception import ErrorCode, OperatedException
 from models import model
 
 router = APIRouter(prefix="/api/mq", tags=["Mq"])
@@ -334,16 +335,46 @@ def recommend_places(
 # ── 감정 분석(단방향) ────────────────────────────────────────────────────────
 @router.post("/emotion_analysis/{memo_id}")
 def emotion_analysis(memo_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    # 의도된 예외: 메모 존재 여부
     memo = db.query(model.MemoEntity).filter_by(memo_id=memo_id).first()
     if not memo:
-        return {"error": "Memo not found"}
-    payload = {"userId": current_user.user_id, "memoId": memo.memo_id, "content": memo.content}
-    _publish(EMOTION_REQ_QUEUE, payload)
-    return {"memo_id": memo.memo_id, "queued": True}
+        raise OperatedException(
+            status_code=404,
+            error_code=ErrorCode.MEMO_NOT_FOUND,
+            detail="해당 메모를 찾을 수 없습니다."
+        )
+    try:
+        payload = {"userId": current_user.user_id, "memoId": memo.memo_id, "content": memo.content}
+        _publish(EMOTION_REQ_QUEUE, payload)
+        return {"memo_id": memo.memo_id, "queued": True}
+    except Exception as e:
+        raise OperatedException(
+            status_code=500,
+            error_code=ErrorCode.UNEXPECTED_ERROR,
+            detail=f"예상치 못한 오류 발생: {str(e)}"
+        )
 
-@router.get("/recommendations/{user_id}")  ### 수정됨
+@router.get("/recommendations/{user_id}")
 def get_recommendations(user_id: int):
-    result = redis_client.get(f"reco:{user_id}")
-    if not result:
-        return {"status": "pending", "message": "No recommendations yet"}
-    return json.loads(result)
+    # 의도된 예외: 추천 결과 존재 여부는 try 밖에서 체크 불가 → Redis 호출 필요
+    try:
+        result = redis_client.get(f"reco:{user_id}")
+        if not result:
+            raise OperatedException(
+                status_code=404,
+                error_code=ErrorCode.MEMO_NOT_FOUND,
+                detail="추천 결과가 아직 없습니다."
+            )
+        return json.loads(result)
+    except redis.exceptions.RedisError as e:
+        raise OperatedException(
+            status_code=500,
+            error_code=ErrorCode.CONNECTION_ERROR,
+            detail=f"Redis 오류 발생: {str(e)}"
+        )
+    except Exception as e:
+        raise OperatedException(
+            status_code=500,
+            error_code=ErrorCode.UNEXPECTED_ERROR,
+            detail=f"예상치 못한 오류 발생: {str(e)}"
+        )
