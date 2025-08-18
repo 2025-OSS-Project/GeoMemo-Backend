@@ -35,6 +35,8 @@ EMOTION_TTL_MS  = os.getenv("EMOTION_TTL_MS")      # e.g. "600000"
 INSIGHT_TTL_MS  = os.getenv("INSIGHT_TTL_MS")      # e.g. "900000"
 RECO_TTL_MS     = os.getenv("RECO_TTL_MS")         # e.g. "300000"
 REDIS_HOST = os.getenv("REDIS_HOST")
+REDIS_USER = os.getenv("REDIS_USER")
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
 ssl_context = ssl.create_default_context()
 ssl_context.check_hostname = False      # 테스트용, 프로덕션에서는 True 권장
 ssl_context.verify_mode = ssl.CERT_NONE # 테스트용, 프로덕션에서는 ssl.CERT_REQUIRED
@@ -43,9 +45,12 @@ redis_client = redis.Redis(
     host=REDIS_HOST,
     port=6379,
     db=0,
-    ssl=True,                 # TLS 사용
+    username=REDIS_USER,       # Redis 6 이상부터 ACL 지원
+    password=REDIS_PASSWORD,
+    ssl=True,                  # TLS 사용
     ssl_cert_reqs=ssl.CERT_NONE  # 테스트용, 프로덕션에서는 ssl.CERT_REQUIRED 권장
 )
+
 
 def _queue_args(ttl_ms: Optional[str]) -> dict:
     args = {}
