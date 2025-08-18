@@ -7,6 +7,7 @@ class ErrorCode(Enum):
     INVALID_INPUT = 1100
 
     # Unauthorized
+    USER_NOT_FOUND = 2000
     EMPTY_TOKEN = 2001
     TOKEN_EXPIRED = 2002
     INVALID_TOKEN = 2003
@@ -14,7 +15,7 @@ class ErrorCode(Enum):
     INVALID_PASSWORD = 2005
     NICKNAME_DUPLICATE = 3001
     MEMO_UPDATE_DENIED_PERMISSION = 2005
-    
+ 
     # Not Found
     SCRAP_NOT_FOUND = 4001
     MEMO_NOT_FOUND = 4002

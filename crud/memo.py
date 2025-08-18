@@ -244,7 +244,7 @@ def get_all_memo(
     lat2: float = None,
     lon2: float = None
 ):
-    if view_setting not in ("all", "follows", "mine"):
+    if view_setting not in ("all", "follows", "self"):
         raise OperatedException(
             status_code=400,
             error_code=ErrorCode.INVALID_INPUT,
@@ -266,7 +266,7 @@ def get_all_memo(
             model.MemoEntity.user_id.in_(following_ids),
             model.MemoEntity.is_public == True
         )
-    elif view_setting == "mine":
+    elif view_setting == "self":
         query = query.filter(model.MemoEntity.user_id == user_id)
 
     if None not in (lat1, lon1, lat2, lon2):

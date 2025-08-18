@@ -147,34 +147,44 @@ def create_insight_this_week(db: Session = Depends(get_db), current_user=Depends
     _publish(INSIGHT_REQ_QUEUE, payload)
     return {"insightId": insight.insight_id, "status": insight.status}
 
-@router.get("/insights")
-def get_insight_status(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    insight = db.query(model.InsightEntity).filter(model.InsightEntity.user_id == current_user.user_id).first()
+@router.get("/insights/{user_id}")
+def get_insight_status(user_id: int, db: Session = Depends(get_db)):
+    # 1. 사용자 존재 확인
+    user = db.query(model.UserEntity).filter(model.UserEntity.user_id == user_id).first()
+    if not user:
+        raise OperatedException(
+                status_code=404,
+                error_code=ErrorCode.USER_NOT_FOUND,
+                detail="해당 사용자가 없습니다."
+            )
+    # 2. 이번 주 시작/끝 계산
     now = datetime.now()
     start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
     end   = (start + timedelta(days=6)).replace(hour=23, minute=59, second=59, microsecond=999999)
-    memos = db.query(model.MemoEntity).filter(
-        model.MemoEntity.user_id == current_user.user_id,
-        model.MemoEntity.createdAt.between(start, end)
-    ).all()
-    insight = model.InsightEntity(user_id=current_user.user_id, status=model.InsightStatus.PENDING)
-    db.add(insight); db.commit(); db.refresh(insight)
 
+    # 3. 인사이트 생성
+    insight = model.InsightEntity(user_id=user_id, status=model.InsightStatus.PENDING)
+    db.add(insight)
+    db.commit()
+    db.refresh(insight)
+
+    # 4. 이번 주 메모 조회
     memos = db.query(model.MemoEntity).filter(
-        model.MemoEntity.user_id == current_user.user_id,
+        model.MemoEntity.user_id == user_id,
         model.MemoEntity.createdAt.between(start, end)
     ).all()
     memo_ids = [m.memo_id for m in memos]
-    # 감정 가져오기
+
+    # 5. 감정 레이블 카운트
     emotions = db.query(model.EmotionEntity).filter(model.EmotionEntity.memo_id.in_(memo_ids)).all()
     emotion_labels = [e.emotion_label for e in emotions if e.emotion_label]
-    # 레이블별 카운트 계산
     emotion_count = dict(Counter(emotion_labels))
+
     return {
         "id": insight.insight_id,
         "status": insight.status,
         "content": insight.content,
-        "emotionCount": emotion_count   # 추가된 부분
+        "emotionCount": emotion_count
     }
 
 # ── 장소 추천(요청-응답: reco.req -> reco.res) ──────────────────────────────
