@@ -42,8 +42,9 @@ ssl_context.verify_mode = ssl.CERT_NONE # 테스트용, 프로덕션에서는 ss
 redis_client = redis.Redis(
     host=REDIS_HOST,
     port=6379,
-    ssl=True,
-    ssl_context=ssl_context
+    db=0,
+    ssl=True,                 # TLS 사용
+    ssl_cert_reqs=ssl.CERT_NONE  # 테스트용, 프로덕션에서는 ssl.CERT_REQUIRED 권장
 )
 
 def _queue_args(ttl_ms: Optional[str]) -> dict:
