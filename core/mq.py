@@ -2,17 +2,20 @@
 import asyncio
 import json
 import os
+import ssl
 import threading
 import uuid
 from typing import Counter, Dict, Optional
 
 import pika
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, Query
+import redis
 from sqlalchemy.orm import Session
 
 from core.deps import get_current_user
 from core.jwt import decode_access_token
 from db.database import get_db
+from exception.exception import ErrorCode, OperatedException
 from models import model
 
 router = APIRouter(prefix="/api/mq", tags=["Mq"])
@@ -31,6 +34,12 @@ MQ_QUEUE_TYPE   = os.getenv("MQ_QUEUE_TYPE")       # e.g. "quorum"
 EMOTION_TTL_MS  = os.getenv("EMOTION_TTL_MS")      # e.g. "600000"
 INSIGHT_TTL_MS  = os.getenv("INSIGHT_TTL_MS")      # e.g. "900000"
 RECO_TTL_MS     = os.getenv("RECO_TTL_MS")         # e.g. "300000"
+REDIS_HOST = os.getenv("REDIS_HOST")
+redis_client = redis.Redis(
+    host=REDIS_HOST,  # MemoryDB 엔드포인트
+    port=6379,                                                    # MemoryDB 기본 포트
+    db=0
+)
 
 def _queue_args(ttl_ms: Optional[str]) -> dict:
     args = {}
@@ -39,24 +48,6 @@ def _queue_args(ttl_ms: Optional[str]) -> dict:
     if ttl_ms and ttl_ms.isdigit():
         args["x-message-ttl"] = int(ttl_ms)
     return args
-
-# ── WebSocket 연결 관리 ──────────────────────────────────────────────────────
-connected_users: Dict[int, WebSocket] = {}
-_main_loop: Optional[asyncio.AbstractEventLoop] = None
-
-@router.websocket("/ws/{user_id}")
-async def websocket_endpoint(websocket: WebSocket, user_id: int, token: str = Query(...)):
-    global _main_loop
-    _ = decode_access_token(token)  # TODO: 인증 로직 보강
-    await websocket.accept()
-    connected_users[user_id] = websocket
-    if _main_loop is None:
-        _main_loop = asyncio.get_running_loop()
-    try:
-        while True:
-            await asyncio.sleep(10)  # keep-alive
-    except WebSocketDisconnect:
-        connected_users.pop(user_id, None)
 
 # ── RabbitMQ 유틸 ────────────────────────────────────────────────────────────
 def _declare_queue(ch, name: str, ttl_env: Optional[str] = None):
@@ -100,9 +91,9 @@ def _reco_callback(ch, method, properties, body):
     try:
         data = json.loads(body.decode("utf-8"))
         user_id = data.get("userId")
-        ws = connected_users.get(user_id)
-        if ws and _main_loop:
-            asyncio.run_coroutine_threadsafe(ws.send_json(data), _main_loop)
+        if user_id:
+            # Redis에 저장 (key: f"reco:{user_id}", TTL 5분)
+            redis_client.setex(f"reco:{user_id}", 300, json.dumps(data))  ### 수정됨
     finally:
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
@@ -115,8 +106,8 @@ def _consume_reco_responses():
     ch.start_consuming()
 
 def consume_messages():
-# 백그라운드에서 추천 응답 소비 시작
     threading.Thread(target=_consume_reco_responses, daemon=True).start()
+
 
 # ── 인사이트(단방향) ────────────────────────────────────────────────────────
 from datetime import datetime, timedelta
@@ -159,10 +150,43 @@ def create_insight_this_week(db: Session = Depends(get_db), current_user=Depends
 
 @router.get("/insights/{user_id}")
 def get_insight_status(user_id: int, db: Session = Depends(get_db)):
-    insight = db.query(model.InsightEntity).filter(model.InsightEntity.user_id == user_id).first()
-    if not insight:
-        return {"error": "Not found"}
-    return {"id": insight.insight_id, "status": insight.status, "content": insight.content}
+    # 1. 사용자 존재 확인
+    user = db.query(model.UserEntity).filter(model.UserEntity.user_id == user_id).first()
+    if not user:
+        raise OperatedException(
+                status_code=404,
+                error_code=ErrorCode.USER_NOT_FOUND,
+                detail="해당 사용자가 없습니다."
+            )
+    # 2. 이번 주 시작/끝 계산
+    now = datetime.now()
+    start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    end   = (start + timedelta(days=6)).replace(hour=23, minute=59, second=59, microsecond=999999)
+
+    # 3. 인사이트 생성
+    insight = model.InsightEntity(user_id=user_id, status=model.InsightStatus.PENDING)
+    db.add(insight)
+    db.commit()
+    db.refresh(insight)
+
+    # 4. 이번 주 메모 조회
+    memos = db.query(model.MemoEntity).filter(
+        model.MemoEntity.user_id == user_id,
+        model.MemoEntity.createdAt.between(start, end)
+    ).all()
+    memo_ids = [m.memo_id for m in memos]
+
+    # 5. 감정 레이블 카운트
+    emotions = db.query(model.EmotionEntity).filter(model.EmotionEntity.memo_id.in_(memo_ids)).all()
+    emotion_labels = [e.emotion_label for e in emotions if e.emotion_label]
+    emotion_count = dict(Counter(emotion_labels))
+
+    return {
+        "id": insight.insight_id,
+        "status": insight.status,
+        "content": insight.content,
+        "emotionCount": emotion_count
+    }
 
 # ── 장소 추천(요청-응답: reco.req -> reco.res) ──────────────────────────────
 @router.post("/recommend")
@@ -197,31 +221,39 @@ def recommend_places(
     )
 
     candidates = [
-        {
-            "locationId": loc.location_id,
-            "name":       loc.name,
-            "category":   loc.category,
-            "lat":        float(getattr(loc, "latitude", 0) or 0),
-            "lon":        float(getattr(loc, "longitude", 0) or 0),
-        }
-        for loc in locations
-    ]
+    {
+        "placeId":   loc.location_id,              # locationId → placeId
+        "name":      loc.name,
+        "category":  loc.category,
+        "latitude":  float(loc.latitude or 0),    # lat → latitude
+        "longitude": float(loc.longitude or 0),   # lon → longitude
+    }
+    for loc in locations
+]
+
     # ── context ──
 
-    # 1. recentEmotion
+    # 1. recentEmotion (최근 작성한 메모의 감정 가져오기)
     recent_memo = (
         db.query(model.MemoEntity)
         .filter(model.MemoEntity.user_id == current_user.user_id)
         .order_by(model.MemoEntity.createdAt.desc())
         .first()
     )
-    if recent_memo and recent_memo.emotions:
-        emo = recent_memo.emotions[0]
-        recent_emotion = {"label": emo.label, "score": emo.score}
+    if recent_memo:
+        emotions = (
+            db.query(model.EmotionEntity)
+            .filter(model.EmotionEntity.memo_id == recent_memo.memo_id)
+            .all()
+        )
+        recent_emotion = [
+            {"label": e.emotion_label, "score": e.emotion_score}
+            for e in emotions
+        ]
     else:
         recent_emotion = None
 
-    # 2. favCategories
+    # 2. favCategories (사용자가 많이 방문한 카테고리)
     user_memos = (
         db.query(model.MemoEntity)
         .join(model.LocationEntity, model.MemoEntity.location_id == model.LocationEntity.location_id)
@@ -231,7 +263,7 @@ def recommend_places(
     cat_counts = Counter([m.location.category for m in user_memos if m.location and m.location.category])
     fav_categories = dict(cat_counts)
 
-    # 3. scrapPlaceIds
+    # 3. scrapPlaceIds (스크랩한 장소)
     scrap_place_ids = [
         s.memo.location_id
         for s in db.query(model.MemoScrapEntity)
@@ -241,7 +273,7 @@ def recommend_places(
         if s.memo and s.memo.location_id
     ]
 
-    # 4. followedUserIds
+    # 4. followedUserIds (내가 팔로우한 사용자 ID)
     followed_user_ids = [
         f.following_id
         for f in db.query(model.FollowEntity)
@@ -249,7 +281,7 @@ def recommend_places(
         .all()
     ]
 
-    # 5. placeSignals
+    # 5. placeSignals (장소별 긍정 비율, 팔로우한 유저의 긍정 개수)
     place_signals = []
     for loc in locations:
         memos_for_loc = (
@@ -265,9 +297,14 @@ def recommend_places(
             pos = 0
             followed_pos_count = 0
             for m in memos_for_loc:
-                for e in m.emotions:
+                emotions = (
+                    db.query(model.EmotionEntity)
+                    .filter(model.EmotionEntity.memo_id == m.memo_id)
+                    .all()
+                )
+                for e in emotions:
                     total += 1
-                    if e.label == "긍정":  # ← 감정 label 기준 (DB에 저장된 값에 맞게 바꿔야 함)
+                    if e.emotion_label == "긍정":  # DB에 저장된 값에 맞게 변경
                         pos += 1
                         if m.user_id in followed_user_ids:
                             followed_pos_count += 1
@@ -281,6 +318,7 @@ def recommend_places(
             }
         )
 
+    # 최종 context
     context = {
         "recentEmotion": recent_emotion,
         "favCategories": fav_categories,
@@ -288,24 +326,66 @@ def recommend_places(
         "followedUserIds": followed_user_ids,
         "placeSignals": place_signals,
     }
+
     corr_id = str(uuid.uuid4())
-    payload = {"userId": current_user.user_id, "top": top, "candidates": candidates, "context": context, "debug": True}
+    payload = {
+        "userId": current_user.user_id,
+        "top": top,
+        "candidates": candidates,
+        "context": context,
+        "debug": True
+    }
     _publish(RECO_REQ_QUEUE, payload, reply_to=RECO_RES_QUEUE, correlation_id=corr_id)
 
-    # 클라이언트는 /ws/{userId}로 응답 수신
     return {
         "requestId": corr_id,
         "queued": True,
         "candidateCount": len(candidates)
     }
 
-
 # ── 감정 분석(단방향) ────────────────────────────────────────────────────────
 @router.post("/emotion_analysis/{memo_id}")
 def emotion_analysis(memo_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    # 의도된 예외: 메모 존재 여부
     memo = db.query(model.MemoEntity).filter_by(memo_id=memo_id).first()
     if not memo:
-        return {"error": "Memo not found"}
-    payload = {"userId": current_user.user_id, "memoId": memo.memo_id, "content": memo.content}
-    _publish(EMOTION_REQ_QUEUE, payload)
-    return {"memo_id": memo.memo_id, "queued": True}
+        raise OperatedException(
+            status_code=404,
+            error_code=ErrorCode.MEMO_NOT_FOUND,
+            detail="해당 메모를 찾을 수 없습니다."
+        )
+    try:
+        payload = {"userId": current_user.user_id, "memoId": memo.memo_id, "content": memo.content}
+        _publish(EMOTION_REQ_QUEUE, payload)
+        return {"memo_id": memo.memo_id, "queued": True}
+    except Exception as e:
+        raise OperatedException(
+            status_code=500,
+            error_code=ErrorCode.UNEXPECTED_ERROR,
+            detail=f"예상치 못한 오류 발생: {str(e)}"
+        )
+
+@router.get("/recommendations/{user_id}")
+def get_recommendations(user_id: int):
+    # 의도된 예외: 추천 결과 존재 여부는 try 밖에서 체크 불가 → Redis 호출 필요
+    try:
+        result = redis_client.get(f"reco:{user_id}")
+        if not result:
+            raise OperatedException(
+                status_code=404,
+                error_code=ErrorCode.MEMO_NOT_FOUND,
+                detail="추천 결과가 아직 없습니다."
+            )
+        return json.loads(result)
+    except redis.exceptions.RedisError as e:
+        raise OperatedException(
+            status_code=500,
+            error_code=ErrorCode.CONNECTION_ERROR,
+            detail=f"Redis 오류 발생: {str(e)}"
+        )
+    except Exception as e:
+        raise OperatedException(
+            status_code=500,
+            error_code=ErrorCode.UNEXPECTED_ERROR,
+            detail=f"예상치 못한 오류 발생: {str(e)}"
+        )

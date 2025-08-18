@@ -211,3 +211,15 @@ def read_user_details(user_id: int, db: Session = Depends(get_db)):
         follower_count= result["follower_count"],
         following_count= result["following_count"]
     )
+
+@router.post("/set/profile-image-default")
+def set_profile_image_default(
+    current_user: UserEntity = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    current_user.profile_image_url = "default_image.jpg"
+    db.add(current_user)   # 수정된 객체 세션에 반영
+    db.commit()            # 트랜잭션 커밋
+    db.refresh(current_user)  # 최신 값 다시 읽기 (옵션)
+    return {"message": "프로필 이미지가 기본값으로 변경되었습니다.", 
+            "profile_image_url": current_user.profile_image_url}

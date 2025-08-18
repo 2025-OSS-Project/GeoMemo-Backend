@@ -23,7 +23,7 @@ class UserEntity(Base):
     name = Column(String(10), nullable=True)
     nickname = Column(String(10), nullable=True)
     phone = Column(String(11), nullable=True)
-    profile_image_url = Column(String(512), nullable=True)
+    profile_image_url = Column(String(512), nullable=True, default="default_image.jpg")
     privacy_settings = Column(String(10), nullable=False, default="open")
     view_settings = Column(String(10), nullable=False, default="all")
 
