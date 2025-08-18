@@ -25,6 +25,7 @@ PyMySQL==1.1.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.1.1
 python-jose==3.5.0
+redis==6.4.0
 rsa==4.9.1
 s3transfer==0.13.1
 six==1.17.0
@@ -35,3 +36,4 @@ typing-inspection==0.4.1
 typing_extensions==4.14.1
 urllib3==2.5.0
 uvicorn==0.35.0
+websockets==10.1

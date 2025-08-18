@@ -8,6 +8,7 @@ from typing import Counter, Dict, Optional
 
 import pika
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, Query
+import redis
 from sqlalchemy.orm import Session
 
 from core.deps import get_current_user
@@ -32,6 +33,9 @@ EMOTION_TTL_MS  = os.getenv("EMOTION_TTL_MS")      # e.g. "600000"
 INSIGHT_TTL_MS  = os.getenv("INSIGHT_TTL_MS")      # e.g. "900000"
 RECO_TTL_MS     = os.getenv("RECO_TTL_MS")         # e.g. "300000"
 
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")  ### 수정됨
+redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)  ### 수정됨
+
 def _queue_args(ttl_ms: Optional[str]) -> dict:
     args = {}
     if MQ_QUEUE_TYPE:
@@ -39,24 +43,6 @@ def _queue_args(ttl_ms: Optional[str]) -> dict:
     if ttl_ms and ttl_ms.isdigit():
         args["x-message-ttl"] = int(ttl_ms)
     return args
-
-# ── WebSocket 연결 관리 ──────────────────────────────────────────────────────
-connected_users: Dict[int, WebSocket] = {}
-_main_loop: Optional[asyncio.AbstractEventLoop] = None
-
-@router.websocket("/ws/{user_id}")
-async def websocket_endpoint(websocket: WebSocket, user_id: int, token: str = Query(...)):
-    global _main_loop
-    _ = decode_access_token(token)  # TODO: 인증 로직 보강
-    await websocket.accept()
-    connected_users[user_id] = websocket
-    if _main_loop is None:
-        _main_loop = asyncio.get_running_loop()
-    try:
-        while True:
-            await asyncio.sleep(10)  # keep-alive
-    except WebSocketDisconnect:
-        connected_users.pop(user_id, None)
 
 # ── RabbitMQ 유틸 ────────────────────────────────────────────────────────────
 def _declare_queue(ch, name: str, ttl_env: Optional[str] = None):
@@ -100,9 +86,9 @@ def _reco_callback(ch, method, properties, body):
     try:
         data = json.loads(body.decode("utf-8"))
         user_id = data.get("userId")
-        ws = connected_users.get(user_id)
-        if ws and _main_loop:
-            asyncio.run_coroutine_threadsafe(ws.send_json(data), _main_loop)
+        if user_id:
+            # Redis에 저장 (key: f"reco:{user_id}", TTL 5분)
+            redis_client.setex(f"reco:{user_id}", 300, json.dumps(data))  ### 수정됨
     finally:
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
@@ -115,8 +101,8 @@ def _consume_reco_responses():
     ch.start_consuming()
 
 def consume_messages():
-# 백그라운드에서 추천 응답 소비 시작
     threading.Thread(target=_consume_reco_responses, daemon=True).start()
+
 
 # ── 인사이트(단방향) ────────────────────────────────────────────────────────
 from datetime import datetime, timedelta
@@ -157,12 +143,35 @@ def create_insight_this_week(db: Session = Depends(get_db), current_user=Depends
     _publish(INSIGHT_REQ_QUEUE, payload)
     return {"insightId": insight.insight_id, "status": insight.status}
 
-@router.get("/insights/{user_id}")
-def get_insight_status(user_id: int, db: Session = Depends(get_db)):
-    insight = db.query(model.InsightEntity).filter(model.InsightEntity.user_id == user_id).first()
-    if not insight:
-        return {"error": "Not found"}
-    return {"id": insight.insight_id, "status": insight.status, "content": insight.content}
+@router.get("/insights")
+def get_insight_status(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    insight = db.query(model.InsightEntity).filter(model.InsightEntity.user_id == current_user.user_id).first()
+    now = datetime.now()
+    start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    end   = (start + timedelta(days=6)).replace(hour=23, minute=59, second=59, microsecond=999999)
+    memos = db.query(model.MemoEntity).filter(
+        model.MemoEntity.user_id == current_user.user_id,
+        model.MemoEntity.createdAt.between(start, end)
+    ).all()
+    insight = model.InsightEntity(user_id=current_user.user_id, status=model.InsightStatus.PENDING)
+    db.add(insight); db.commit(); db.refresh(insight)
+
+    memos = db.query(model.MemoEntity).filter(
+        model.MemoEntity.user_id == current_user.user_id,
+        model.MemoEntity.createdAt.between(start, end)
+    ).all()
+    memo_ids = [m.memo_id for m in memos]
+    # 감정 가져오기
+    emotions = db.query(model.EmotionEntity).filter(model.EmotionEntity.memo_id.in_(memo_ids)).all()
+    emotion_labels = [e.emotion_label for e in emotions if e.emotion_label]
+    # 레이블별 카운트 계산
+    emotion_count = dict(Counter(emotion_labels))
+    return {
+        "id": insight.insight_id,
+        "status": insight.status,
+        "content": insight.content,
+        "emotionCount": emotion_count   # 추가된 부분
+    }
 
 # ── 장소 추천(요청-응답: reco.req -> reco.res) ──────────────────────────────
 @router.post("/recommend")
@@ -328,3 +337,10 @@ def emotion_analysis(memo_id: int, db: Session = Depends(get_db), current_user=D
     payload = {"userId": current_user.user_id, "memoId": memo.memo_id, "content": memo.content}
     _publish(EMOTION_REQ_QUEUE, payload)
     return {"memo_id": memo.memo_id, "queued": True}
+
+@router.get("/recommendations/{user_id}")  ### 수정됨
+def get_recommendations(user_id: int):
+    result = redis_client.get(f"reco:{user_id}")
+    if not result:
+        return {"status": "pending", "message": "No recommendations yet"}
+    return json.loads(result)
