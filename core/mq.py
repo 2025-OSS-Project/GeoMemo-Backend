@@ -179,7 +179,7 @@ def get_insight_status(user_id: int, db: Session = Depends(get_db)):
     insight = (
     db.query(model.InsightEntity)
     .filter(model.InsightEntity.user_id == user_id)
-    .order_by(model.InsightEntity.created_at.desc())  # 가장 최근 것 사용
+    .order_by(model.InsightEntity.createdAt.desc())  # 가장 최근 것 사용
     .first()
 )
     if not insight:
