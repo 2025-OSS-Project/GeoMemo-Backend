@@ -17,7 +17,7 @@ scheduler = BackgroundScheduler()
 async def lifespan(app: FastAPI):
     # 서버 시작 시
     threading.Thread(target=mq.consume_messages, daemon=True).start()
-    scheduler.add_job(daily_job, "interval", minutes=5)
+    scheduler.add_job(daily_job, "interval", hours=3)
  # 테스트용 10초 간격
     scheduler.start()
     print("스케줄러 시작")
