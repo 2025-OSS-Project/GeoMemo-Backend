@@ -176,12 +176,18 @@ def get_insight_status(user_id: int, db: Session = Depends(get_db)):
     start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
     end   = (start + timedelta(days=6)).replace(hour=23, minute=59, second=59, microsecond=999999)
 
-    # 3. 인사이트 생성
-    insight = model.InsightEntity(user_id=user_id, status=model.InsightStatus.PENDING)
-    db.add(insight)
-    db.commit()
-    db.refresh(insight)
-
+    insight = (
+    db.query(model.InsightEntity)
+    .filter(model.InsightEntity.user_id == user_id)
+    .order_by(model.InsightEntity.created_at.desc())  # 가장 최근 것 사용
+    .first()
+)
+    if not insight:
+        raise OperatedException(
+                status_code=404,
+                error_code=ErrorCode.INSIGHT_NOT_FOUND,
+                detail="인사이트가 없습니다."
+            )
     # 4. 이번 주 메모 조회
     memos = db.query(model.MemoEntity).filter(
         model.MemoEntity.user_id == user_id,
