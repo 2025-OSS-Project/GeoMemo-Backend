@@ -35,11 +35,23 @@ EMOTION_TTL_MS  = os.getenv("EMOTION_TTL_MS")      # e.g. "600000"
 INSIGHT_TTL_MS  = os.getenv("INSIGHT_TTL_MS")      # e.g. "900000"
 RECO_TTL_MS     = os.getenv("RECO_TTL_MS")         # e.g. "300000"
 REDIS_HOST = os.getenv("REDIS_HOST")
+REDIS_USER = os.getenv("REDIS_USER")
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
+ssl_context = ssl.create_default_context()
+ssl_context.check_hostname = False      # 테스트용, 프로덕션에서는 True 권장
+ssl_context.verify_mode = ssl.CERT_NONE # 테스트용, 프로덕션에서는 ssl.CERT_REQUIRED
+
 redis_client = redis.Redis(
-    host=REDIS_HOST,  # MemoryDB 엔드포인트
-    port=6379,                                                    # MemoryDB 기본 포트
-    db=0
+    host=REDIS_HOST,
+    port=6379,
+    db=0,
+    username=REDIS_USER,       # Redis 6 이상부터 ACL 지원
+    password=REDIS_PASSWORD,
+    ssl=True,                  # TLS 사용
+    ssl_cert_reqs=ssl.CERT_NONE  # 테스트용, 프로덕션에서는 ssl.CERT_REQUIRED 권장
 )
+
+
 
 def _queue_args(ttl_ms: Optional[str]) -> dict:
     args = {}
@@ -112,17 +124,18 @@ def consume_messages():
 # ── 인사이트(단방향) ────────────────────────────────────────────────────────
 from datetime import datetime, timedelta
 
-@router.post("/insights")
-def create_insight_this_week(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def create_insight_for_user(user_id: int, db: Session):
     now = datetime.now()
     start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
     end   = (start + timedelta(days=6)).replace(hour=23, minute=59, second=59, microsecond=999999)
 
-    insight = model.InsightEntity(user_id=current_user.user_id, status=model.InsightStatus.PENDING)
-    db.add(insight); db.commit(); db.refresh(insight)
+    insight = model.InsightEntity(user_id=user_id, status=model.InsightStatus.PENDING)
+    db.add(insight)
+    db.commit()
+    db.refresh(insight)
 
     memos = db.query(model.MemoEntity).filter(
-        model.MemoEntity.user_id == current_user.user_id,
+        model.MemoEntity.user_id == user_id,
         model.MemoEntity.createdAt.between(start, end)
     ).all()
 
@@ -143,10 +156,10 @@ def create_insight_this_week(db: Session = Depends(get_db), current_user=Depends
         "placeName": (location_map.get(m.location_id).name if location_map.get(m.location_id) else None),
     } for m in memos]
 
-    # 인사이트 요청 발행(응답은 DB에 저장)
-    payload = {"insightId": insight.insight_id, "userId": current_user.user_id, "logs": logs}
+    payload = {"insightId": insight.insight_id, "userId": user_id, "logs": logs}
     _publish(INSIGHT_REQ_QUEUE, payload)
     return {"insightId": insight.insight_id, "status": insight.status}
+
 
 @router.get("/insights/{user_id}")
 def get_insight_status(user_id: int, db: Session = Depends(get_db)):
@@ -163,12 +176,18 @@ def get_insight_status(user_id: int, db: Session = Depends(get_db)):
     start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
     end   = (start + timedelta(days=6)).replace(hour=23, minute=59, second=59, microsecond=999999)
 
-    # 3. 인사이트 생성
-    insight = model.InsightEntity(user_id=user_id, status=model.InsightStatus.PENDING)
-    db.add(insight)
-    db.commit()
-    db.refresh(insight)
-
+    insight = (
+    db.query(model.InsightEntity)
+    .filter(model.InsightEntity.user_id == user_id)
+    .order_by(model.InsightEntity.createdAt.desc())  # 가장 최근 것 사용
+    .first()
+)
+    if not insight:
+        raise OperatedException(
+                status_code=404,
+                error_code=ErrorCode.INSIGHT_NOT_FOUND,
+                detail="인사이트가 없습니다."
+            )
     # 4. 이번 주 메모 조회
     memos = db.query(model.MemoEntity).filter(
         model.MemoEntity.user_id == user_id,
