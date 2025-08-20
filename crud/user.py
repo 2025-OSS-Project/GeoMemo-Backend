@@ -1,3 +1,4 @@
+import re
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from exception.exception import ErrorCode, OperatedException
@@ -12,13 +13,50 @@ def get_user_by_email(db: Session, email: str) -> User | None:
     return db.query(User).filter(User.email == email).first()
 
 def create_user(db: Session, user: UserCreate) -> User:
-    existing_user = db.query(User).filter(User.nickname == user.nickname).first()
-    if existing_user:
+    
+    # 3. 비밀번호 형식 체크 (예: 8자 이상, 숫자/문자 포함)
+    if len(user.password) < 8 or not re.search(r"[A-Za-z]", user.password) or not re.search(r"\d", user.password):
         raise OperatedException(
-            status_code=404,
-            error_code=ErrorCode.NICKNAME_DUPLICATE,
-            detail="해당 닉네임은 사용할 수 없습니다."
+            status_code=400,
+            error_code=ErrorCode.USR_003,
+            detail="비밀번호 형식이 올바르지 않습니다. (최소 8자, 문자+숫자 포함)"
         )
+
+    # 4. 닉네임 길이 체크 (예: 최대 20자)
+    if len(user.nickname) > 20:
+        raise OperatedException(
+            status_code=400,
+            error_code=ErrorCode.USR_006,
+            detail="닉네임 길이가 너무 깁니다. (최대 20자)"
+        )
+
+    # 5. 전화번호 형식 체크 (숫자만, 10~11자리)
+    if not re.fullmatch(r"\d{10,11}", user.phone):
+        raise OperatedException(
+            status_code=400,
+            error_code=ErrorCode.USR_007,
+            detail="전화번호 형식이 올바르지 않습니다."
+        )
+
+    # 6. 닉네임 중복 체크
+    existing_nickname = db.query(User).filter(User.nickname == user.nickname).first()
+    if existing_nickname:
+        raise OperatedException(
+            status_code=409,
+            error_code=ErrorCode.USR_004,
+            detail="이미 존재하는 사용자명입니다."
+        )
+
+    # 7. 이메일 중복 체크
+    existing_email = db.query(User).filter(User.email == user.email).first()
+    if existing_email:
+        raise OperatedException(
+            status_code=409,
+            error_code=ErrorCode.USR_005,
+            detail="이미 사용 중인 이메일입니다."
+        )
+
+    # 8. 사용자 생성
     db_user = User(
         email=user.email,
         password=hash_password(user.password),
@@ -26,9 +64,18 @@ def create_user(db: Session, user: UserCreate) -> User:
         nickname=user.nickname,
         phone=user.phone,
     )
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
+    try:
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+    except Exception as e:
+        db.rollback()
+        raise OperatedException(
+            status_code=500,
+            error_code=ErrorCode.USR_999,
+            detail=f"서버 내부 오류: {str(e)}"
+        )
+
     return db_user
 
 def authenticate_user(db: Session, email: str, password: str) -> User | None:
