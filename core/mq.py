@@ -129,7 +129,7 @@ def create_insight_for_user(user_id: int, db: Session):
     start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
     end   = (start + timedelta(days=6)).replace(hour=23, minute=59, second=59, microsecond=999999)
 
-    insight = model.InsightEntity(user_id=user_id, status=model.InsightStatus.PENDING)
+    insight = model.InsightEntity(user_id=user_id, content = "인사이트가 생성되는중이에요" ,status=model.InsightStatus.PENDING)
     db.add(insight)
     db.commit()
     db.refresh(insight)
