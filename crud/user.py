@@ -1,5 +1,6 @@
 from sqlalchemy import func
 from sqlalchemy.orm import Session
+from exception.exception import ErrorCode, OperatedException
 from models.model import UserEntity as User
 from schemas.user import UserCreate, NicknameUpdateResponse, PasswordUpdateResponse, DeleteUserResponse
 from core.security import hash_password, verify_password
@@ -11,6 +12,13 @@ def get_user_by_email(db: Session, email: str) -> User | None:
     return db.query(User).filter(User.email == email).first()
 
 def create_user(db: Session, user: UserCreate) -> User:
+    existing_user = db.query(User).filter(User.nickname == user.nickname).first()
+    if existing_user:
+        raise OperatedException(
+            status_code=404,
+            error_code=ErrorCode.NICKNAME_DUPLICATE,
+            detail="해당 닉네임은 사용할 수 없습니다."
+        )
     db_user = User(
         email=user.email,
         password=hash_password(user.password),
