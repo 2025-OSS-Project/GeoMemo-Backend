@@ -1,8 +1,11 @@
+import os
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List
 
 from core.deps import get_current_user
+from core.mq import _publish
+from exception.exception import ErrorCode, OperatedException
 from models import model
 from schemas.memo import CreateMemoRequest, LocationSchema, MemoListSchema, MemoSchema, MemoScrapSchema, UpdateMemoRequest, UserSchema
 from schemas.response import APIResponse
@@ -12,7 +15,7 @@ from crud.memo import (
     update_memo_with_photos, get_all_memo
 )
 from db.database import get_db
-
+EMOTION_REQ_QUEUE_URL = os.getenv("EMOTION_REQ_QUEUE_URL")
 router = APIRouter(prefix="/api/memo", tags=["Memo"])
 
 @router.post("/", response_model=APIResponse[int])
@@ -26,6 +29,15 @@ async def create_memo_api(
         user_id=current_user.user_id,
         memo_create=memo_create,
     )
+    try:
+        payload = {"userId": current_user.user_id, "memoId": memo.memo_id, "content": memo.content}
+        _publish(EMOTION_REQ_QUEUE_URL, payload)
+    except Exception as e:
+        raise OperatedException(
+            status_code=500,
+            error_code=ErrorCode.UNEXPECTED_ERROR,
+            detail=f"예상치 못한 오류 발생: {str(e)}"
+        )
     return APIResponse(success=True, data=memo.memo_id)
 
 
